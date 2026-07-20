@@ -104,24 +104,44 @@ int main(int argc, char* argv[]) {
     // ==========================================
     // 3. Text-To-Speech (Moonshine Kokoro)
     // ==========================================
-    std::cout << "\n[3] Initializing Text-To-Speech Engine (Kokoro)..." << std::endl;
-    std::vector<moonshine_option_t> tts_options = {
+    std::cout << "\n[3] Initializing Kokoro TTS Engine..." << std::endl;
+    std::vector<moonshine_option_t> kokoro_options = {
         {"g2p_root", "../../moonshine/examples/macos/TextToSpeech/tts-data"},
         {"voice", "af_heart"},
     };
-    // Note: Since we are using en_us for German text, it will speak German with a heavy American accent
-    moonshine::TextToSpeech tts("en_us", tts_options);
+    moonshine::TextToSpeech tts_kokoro("en_us", kokoro_options);
 
-    std::cout << "\n--- Chunked Real-Time Pipeline Stream ---" << std::endl;
+    // ==========================================
+    // 4. Text-To-Speech (Piper)
+    // ==========================================
+    std::cout << "[4] Initializing Piper TTS Engine..." << std::endl;
+    std::vector<moonshine_option_t> piper_options = {
+        {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
+        {"voice", "piper_de_DE-thorsten-medium"},
+    };
+    moonshine::TextToSpeech tts_piper("de", piper_options);
+
+    // ==========================================
+    // 5. Text-To-Speech (ZipVoice)
+    // ==========================================
+    std::cout << "[5] Initializing ZipVoice TTS Engine..." << std::endl;
+    std::vector<moonshine_option_t> zv_options = {
+        {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
+        {"voice", "zipvoice_american_female"},
+    };
+    moonshine::TextToSpeech tts_zv("en_us", zv_options);
+
+    std::cout << "\n--- Chunked Real-Time Pipeline Benchmark Stream ---" << std::endl;
 
     for (size_t i = 0; i < transcript.lines.size(); ++i) {
         const auto& line = transcript.lines[i];
+        
+        // Skip empty lines
         if (line.text.empty()) continue;
-
-        // Print the chunk timing and what Moonshine heard
+        
         std::cout << "[Chunk " << (i + 1) << " | " << line.startTime << "s - " << (line.startTime + line.duration) << "s]" << std::endl;
         std::cout << "  Original   : " << line.text << std::endl;
-
+        
         // Tokenize the exact chunk text
         std::vector<std::string> tokens;
         source_spm.Encode(line.text, &tokens);
@@ -144,14 +164,26 @@ int main(int argc, char* argv[]) {
         
         std::cout << "  Translated : " << output_text << std::endl;
         
-        // Generate Audio!
-        auto tts_start = std::chrono::high_resolution_clock::now();
-        auto tts_result = tts.synthesize(output_text);
-        auto tts_end = std::chrono::high_resolution_clock::now();
-        int tts_latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(tts_end - tts_start).count();
+        // Generate Audio Kokoro
+        auto kokoro_start = std::chrono::high_resolution_clock::now();
+        auto kokoro_result = tts_kokoro.synthesize(output_text);
+        int kokoro_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - kokoro_start).count();
+
+        // Generate Audio Piper
+        auto piper_start = std::chrono::high_resolution_clock::now();
+        auto piper_result = tts_piper.synthesize(output_text);
+        int piper_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - piper_start).count();
+
+        // Generate Audio ZipVoice
+        auto zv_start = std::chrono::high_resolution_clock::now();
+        auto zv_result = tts_zv.synthesize(output_text);
+        int zv_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - zv_start).count();
         
-        std::cout << "  TTS Audio  : Generated " << tts_result.samples.size() << " samples (" << (tts_result.samples.size() / (float)tts_result.sampleRateHz) << " seconds of audio)" << std::endl;
-        std::cout << "  Latency    : Moonshine (" << line.lastTranscriptionLatencyMs << "ms) + CTranslate2 (" << translation_latency_ms << "ms) + TTS (" << tts_latency_ms << "ms) = " << (line.lastTranscriptionLatencyMs + translation_latency_ms + tts_latency_ms) << "ms total pipeline delay" << std::endl << std::endl;
+        std::cout << "  -> VTT       : " << line.lastTranscriptionLatencyMs << "ms" << std::endl;
+        std::cout << "  -> CT2 Translate: " << translation_latency_ms << "ms" << std::endl;
+        std::cout << "  -> Kokoro TTS: " << kokoro_ms << "ms" << std::endl;
+        std::cout << "  -> Piper TTS : " << piper_ms << "ms" << std::endl;
+        std::cout << "  -> ZipVoice  : " << zv_ms << "ms" << std::endl << std::endl;
     }
 
     return 0;
