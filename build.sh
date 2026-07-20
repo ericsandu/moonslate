@@ -1,0 +1,25 @@
+#!/bin/bash
+set -e
+
+echo "=== Moonslate Build Automation ==="
+
+echo "[1] Initializing and updating Git submodules..."
+git submodule update --init --recursive
+
+echo "[2] Building Moonshine Core Library..."
+mkdir -p moonshine/core/build
+cd moonshine/core/build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j$(nproc)
+cd ../../../
+
+echo "[3] Building Moonslate Integrations (CTranslate2, SentencePiece)..."
+mkdir -p ctranslate2/build
+cd ctranslate2/build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build . -j$(nproc)
+cd ../../
+
+echo "=== Build Complete! ==="
+echo "Test the integration demo:"
+echo "./ctranslate2/build/integration_demo ./moonshine/test-assets/two_cities.wav ./moonshine/test-assets/tiny-en ./models/opus-mt-en-de-ct2"
