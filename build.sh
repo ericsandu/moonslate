@@ -17,6 +17,11 @@ echo "[3] Building Moonslate Integrations (CTranslate2, SentencePiece)..."
 mkdir -p ctranslate2/build
 cd ctranslate2/build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+# Apply GCC 16 <cstdint> patch to SentencePiece before building
+echo "Patching SentencePiece..."
+sed -i 's/#include <vector>/#include <vector>\n#include <cstdint>/' _deps/sentencepiece-src/src/sentencepiece_processor.h || true
+
 cmake --build . -j$(nproc)
 cd ../../
 
