@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <chrono>
 #include <ctranslate2/translator.h>
 #include <sentencepiece_processor.h>
 #include "moonshine-cpp.h"
@@ -113,8 +114,11 @@ int main(int argc, char* argv[]) {
         source_spm.Encode(line.text, &tokens);
         tokens.push_back("</s>"); // Tell the translator the sentence is complete
         
-        // Translate this specific chunk!
+        // Measure Translation Latency
+        auto start_time = std::chrono::high_resolution_clock::now();
         std::vector<ctranslate2::TranslationResult> results = translator.translate_batch({tokens});
+        auto end_time = std::chrono::high_resolution_clock::now();
+        int translation_latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
         
         // Decode the translated tokens back to human readable text
         std::string output_text;
@@ -125,7 +129,8 @@ int main(int argc, char* argv[]) {
             output_text = output_text.substr(0, output_text.size() - 4);
         }
         
-        std::cout << "  Translated : " << output_text << std::endl << std::endl;
+        std::cout << "  Translated : " << output_text << std::endl;
+        std::cout << "  Latency    : Moonshine VTT (" << line.lastTranscriptionLatencyMs << "ms) + CTranslate2 (" << translation_latency_ms << "ms) = " << (line.lastTranscriptionLatencyMs + translation_latency_ms) << "ms total delay" << std::endl << std::endl;
     }
 
     return 0;
