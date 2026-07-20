@@ -6,7 +6,8 @@
 #include <sentencepiece_processor.h>
 #include "moonshine-cpp.h"
 
-// Duplicate of load_wav_data in debug-utils.cpp to avoid depending on internal moonshine-utils
+
+// Duplicate of load_wav_data to properly parse WAV chunks and avoid garbage metadata
 bool load_wav_data(const char *path, float **out_float_data,
                    size_t *out_num_samples, int32_t *out_sample_rate) {
   *out_float_data = nullptr;
@@ -44,6 +45,9 @@ bool load_wav_data(const char *path, float **out_float_data,
     std::fseek(file, chunk_size, SEEK_CUR);
   }
   if (!found_data) { std::fclose(file); return false; }
+  
+  std::cout << "  [WAV Parser] Channels: " << num_channels << ", Bits/Sample: " << bits_per_sample << ", Rate: " << sample_rate << ", Format: " << audio_format << std::endl;
+
   size_t num_samples = chunk_size / (bits_per_sample / 8);
   float *result_data = (float *)malloc(num_samples * sizeof(float));
   for (size_t i = 0; i < num_samples; ++i) {
@@ -52,6 +56,12 @@ bool load_wav_data(const char *path, float **out_float_data,
     result_data[i] = static_cast<float>(sample) / 32768.0f;
   }
   std::fclose(file);
+  *out_float_data = result_data;
+  *out_num_samples = num_samples;
+  if (out_sample_rate != nullptr) *out_sample_rate = sample_rate;
+  return true;
+}
+
 // Helper function to write raw PCM floats to a .wav file
 void write_wav(const std::string& filename, const std::vector<float>& samples, int sampleRate) {
     std::ofstream file(filename, std::ios::binary);
@@ -103,20 +113,22 @@ int main(int argc, char** argv) {
     // ==========================================
     std::cout << "[1] Running Voice-To-Text Transcription via Moonshine..." << std::endl;
     
+    float *wav_data = nullptr;
+    size_t wav_data_size = 0;
+    int32_t wav_sample_rate = 0;
+    if (!load_wav_data(audio_path.c_str(), &wav_data, &wav_data_size, &wav_sample_rate)) {
+        std::cerr << "Failed to load WAV file!" << std::endl;
+        return 1;
+    }
+    std::vector<float> audio_samples(wav_data, wav_data + wav_data_size);
+    std::cout << "  -> Loaded " << audio_samples.size() << " samples (" << (audio_samples.size() / (float)wav_sample_rate) << " seconds) at " << wav_sample_rate << " Hz" << std::endl;
+    free(wav_data);
+
     // Load Moonshine Model (Tiny)
     moonshine::Transcriber transcriber(moon_model_path, moonshine::ModelArch::TINY);
     
-    // Load local .wav file into float array
-    std::vector<float> audio_samples;
-    std::ifstream wav_file(audio_path, std::ios::binary);
-    wav_file.seekg(44); // Skip 44-byte wav header for this basic example
-    int16_t sample;
-    while (wav_file.read(reinterpret_cast<char*>(&sample), sizeof(int16_t))) {
-        audio_samples.push_back(sample / 32768.0f);
-    }
-    
     // Transcribe entire file to get the natural chunks
-    moonshine::Transcript transcript = transcriber.transcribeWithoutStreaming(audio_samples);
+    moonshine::Transcript transcript = transcriber.transcribeWithoutStreaming(audio_samples, wav_sample_rate, 0);
 
     // ==========================================
     // 2. Machine Translation (CTranslate2)
@@ -129,15 +141,8 @@ int main(int argc, char** argv) {
     source_spm.Load(ct2_model_path + "/source.spm");
     target_spm.Load(ct2_model_path + "/target.spm");
 
-    // Dynamic Thread Detection
-    unsigned int total_threads = std::thread::hardware_concurrency();
-    if (total_threads == 0) total_threads = 4; // Fallback
-    unsigned int target_threads = std::max(1u, (unsigned int)(total_threads * 0.8));
-    
-    std::cout << "  -> Detected " << total_threads << " CPU threads. Allocating " << target_threads << " threads for CTranslate2..." << std::endl;
-
     ctranslate2::ReplicaPoolConfig config;
-    config.num_threads_per_replica = target_threads;
+    config.num_threads_per_replica = 0; // 0 uses optimal physical cores
 
     // Initialize Translator Engine
     ctranslate2::Translator translator(ct2_model_path, ctranslate2::Device::CPU, ctranslate2::ComputeType::DEFAULT, {0}, false, config);
@@ -145,10 +150,10 @@ int main(int argc, char** argv) {
     // ==========================================
     // 3. Text-To-Speech (Piper)
     // ==========================================
-    std::cout << "\n[3] Initializing Piper TTS Engine (German)..." << std::endl;
+    std::cout << "\n[3] Initializing Piper TTS Engine (German Thorsten High)..." << std::endl;
     std::vector<moonshine_option_t> piper_options = {
         {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
-        {"voice", "piper_de_DE-thorsten-medium"},
+        {"voice", "piper_de_DE-thorsten-high"},
     };
     moonshine::TextToSpeech tts_piper("de", piper_options);
 
@@ -201,7 +206,7 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "\n[4] Saving Synthesized Audio to disk..." << std::endl;
-    std::string out_file = "output_german.wav";
+    std::string out_file = "output_german_high.wav";
     write_wav(out_file, all_tts_audio, tts_sample_rate);
     std::cout << "  -> Saved to " << out_file << " (" << all_tts_audio.size() / (float)tts_sample_rate << " seconds of audio)" << std::endl;
 
