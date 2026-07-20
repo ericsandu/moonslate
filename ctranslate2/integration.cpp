@@ -52,38 +52,71 @@ bool load_wav_data(const char *path, float **out_float_data,
     result_data[i] = static_cast<float>(sample) / 32768.0f;
   }
   std::fclose(file);
-  *out_float_data = result_data;
-  *out_num_samples = num_samples;
-  if (out_sample_rate != nullptr) *out_sample_rate = sample_rate;
-  return true;
+// Helper function to write raw PCM floats to a .wav file
+void write_wav(const std::string& filename, const std::vector<float>& samples, int sampleRate) {
+    std::ofstream file(filename, std::ios::binary);
+    if (!file) return;
+
+    int32_t numSamples = samples.size();
+    int32_t subchunk2Size = numSamples * sizeof(int16_t);
+    int32_t chunkSize = 36 + subchunk2Size;
+    int32_t byteRate = sampleRate * sizeof(int16_t);
+
+    file.write("RIFF", 4);
+    file.write(reinterpret_cast<const char*>(&chunkSize), 4);
+    file.write("WAVE", 4);
+    file.write("fmt ", 4);
+    int32_t subchunk1Size = 16;
+    file.write(reinterpret_cast<const char*>(&subchunk1Size), 4);
+    int16_t audioFormat = 1; // PCM
+    file.write(reinterpret_cast<const char*>(&audioFormat), 2);
+    int16_t numChannels = 1; // Mono
+    file.write(reinterpret_cast<const char*>(&numChannels), 2);
+    file.write(reinterpret_cast<const char*>(&sampleRate), 4);
+    file.write(reinterpret_cast<const char*>(&byteRate), 4);
+    int16_t blockAlign = sizeof(int16_t);
+    file.write(reinterpret_cast<const char*>(&blockAlign), 2);
+    int16_t bitsPerSample = 16;
+    file.write(reinterpret_cast<const char*>(&bitsPerSample), 2);
+    file.write("data", 4);
+    file.write(reinterpret_cast<const char*>(&subchunk2Size), 4);
+
+    for (float sample : samples) {
+        float clamped = std::max(-1.0f, std::min(1.0f, sample));
+        int16_t intSample = static_cast<int16_t>(clamped * 32767.0f);
+        file.write(reinterpret_cast<const char*>(&intSample), sizeof(int16_t));
+    }
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char** argv) {
     if (argc < 4) {
-        std::cerr << "Usage: " << argv[0] << " <wav_file> <moonshine_model_dir> <ct2_model_dir>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <audio.wav> <moonshine_model_dir> <ct2_model_dir>\n";
         return 1;
     }
 
-    std::string wav_path = argv[1];
-    std::string moonshine_model_path = argv[2];
+    std::string audio_path = argv[1];
+    std::string moon_model_path = argv[2];
     std::string ct2_model_path = argv[3];
 
     // ==========================================
-    // 1. Voice To Text (Moonshine)
+    // 1. Voice-To-Text (Moonshine)
     // ==========================================
-    float *wav_data = nullptr;
-    size_t wav_data_size = 0;
-    int32_t wav_sample_rate = 0;
-    if (!load_wav_data(wav_path.c_str(), &wav_data, &wav_data_size, &wav_sample_rate)) {
-        std::cerr << "Failed to load WAV file!" << std::endl;
-        return 1;
-    }
-
     std::cout << "[1] Running Voice-To-Text Transcription via Moonshine..." << std::endl;
-    moonshine::Transcriber transcriber(moonshine_model_path, moonshine::ModelArch::TINY);
-    moonshine::Transcript transcript = transcriber.transcribeWithoutStreaming(
-        std::vector<float>(wav_data, wav_data + wav_data_size), wav_sample_rate, 0);
-    free(wav_data);
+    
+    // Load Moonshine Model (Tiny)
+    moonshine::Transcriber transcriber(moon_model_path, moonshine::ModelArch::TINY);
+    
+    // Load local .wav file into float array
+    std::vector<float> audio_samples;
+    std::ifstream wav_file(audio_path, std::ios::binary);
+    wav_file.seekg(44); // Skip 44-byte wav header for this basic example
+    int16_t sample;
+    while (wav_file.read(reinterpret_cast<char*>(&sample), sizeof(int16_t))) {
+        audio_samples.push_back(sample / 32768.0f);
+    }
+    
+    // Transcribe entire file to get the natural chunks
+    moonshine::Transcript transcript = transcriber.transcribeWithoutStreaming(audio_samples);
 
     // ==========================================
     // 2. Machine Translation (CTranslate2)
@@ -95,43 +128,34 @@ int main(int argc, char* argv[]) {
     sentencepiece::SentencePieceProcessor target_spm;
     source_spm.Load(ct2_model_path + "/source.spm");
     target_spm.Load(ct2_model_path + "/target.spm");
+
+    // Dynamic Thread Detection
+    unsigned int total_threads = std::thread::hardware_concurrency();
+    if (total_threads == 0) total_threads = 4; // Fallback
+    unsigned int target_threads = std::max(1u, (unsigned int)(total_threads * 0.8));
+    
+    std::cout << "  -> Detected " << total_threads << " CPU threads. Allocating " << target_threads << " threads for CTranslate2..." << std::endl;
+
     ctranslate2::ReplicaPoolConfig config;
-    config.num_threads_per_replica = 4;
+    config.num_threads_per_replica = target_threads;
 
     // Initialize Translator Engine
     ctranslate2::Translator translator(ct2_model_path, ctranslate2::Device::CPU, ctranslate2::ComputeType::DEFAULT, {0}, false, config);
     
     // ==========================================
-    // 3. Text-To-Speech (Moonshine Kokoro)
+    // 3. Text-To-Speech (Piper)
     // ==========================================
-    std::cout << "\n[3] Initializing Kokoro TTS Engine..." << std::endl;
-    std::vector<moonshine_option_t> kokoro_options = {
-        {"g2p_root", "../../moonshine/examples/macos/TextToSpeech/tts-data"},
-        {"voice", "af_heart"},
-    };
-    moonshine::TextToSpeech tts_kokoro("en_us", kokoro_options);
-
-    // ==========================================
-    // 4. Text-To-Speech (Piper)
-    // ==========================================
-    std::cout << "[4] Initializing Piper TTS Engine..." << std::endl;
+    std::cout << "\n[3] Initializing Piper TTS Engine (German)..." << std::endl;
     std::vector<moonshine_option_t> piper_options = {
         {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
         {"voice", "piper_de_DE-thorsten-medium"},
     };
     moonshine::TextToSpeech tts_piper("de", piper_options);
 
-    // ==========================================
-    // 5. Text-To-Speech (ZipVoice)
-    // ==========================================
-    std::cout << "[5] Initializing ZipVoice TTS Engine..." << std::endl;
-    std::vector<moonshine_option_t> zv_options = {
-        {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
-        {"voice", "zipvoice_american_female"},
-    };
-    moonshine::TextToSpeech tts_zv("en_us", zv_options);
+    std::cout << "\n--- Chunked Real-Time Pipeline Stream ---" << std::endl;
 
-    std::cout << "\n--- Chunked Real-Time Pipeline Benchmark Stream ---" << std::endl;
+    std::vector<float> all_tts_audio;
+    int tts_sample_rate = 0;
 
     for (size_t i = 0; i < transcript.lines.size(); ++i) {
         const auto& line = transcript.lines[i];
@@ -145,7 +169,7 @@ int main(int argc, char* argv[]) {
         // Tokenize the exact chunk text
         std::vector<std::string> tokens;
         source_spm.Encode(line.text, &tokens);
-        tokens.push_back("</s>"); // Tell the translator the sentence is complete
+        tokens.push_back("</s>");
         
         // Measure Translation Latency
         auto start_time = std::chrono::high_resolution_clock::now();
@@ -164,27 +188,22 @@ int main(int argc, char* argv[]) {
         
         std::cout << "  Translated : " << output_text << std::endl;
         
-        // Generate Audio Kokoro
-        auto kokoro_start = std::chrono::high_resolution_clock::now();
-        auto kokoro_result = tts_kokoro.synthesize(output_text);
-        int kokoro_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - kokoro_start).count();
-
         // Generate Audio Piper
         auto piper_start = std::chrono::high_resolution_clock::now();
         auto piper_result = tts_piper.synthesize(output_text);
         int piper_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - piper_start).count();
-
-        // Generate Audio ZipVoice
-        auto zv_start = std::chrono::high_resolution_clock::now();
-        auto zv_result = tts_zv.synthesize(output_text);
-        int zv_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - zv_start).count();
         
-        std::cout << "  -> VTT       : " << line.lastTranscriptionLatencyMs << "ms" << std::endl;
-        std::cout << "  -> CT2 Translate: " << translation_latency_ms << "ms" << std::endl;
-        std::cout << "  -> Kokoro TTS: " << kokoro_ms << "ms" << std::endl;
-        std::cout << "  -> Piper TTS : " << piper_ms << "ms" << std::endl;
-        std::cout << "  -> ZipVoice  : " << zv_ms << "ms" << std::endl << std::endl;
+        // Append to full audio buffer
+        all_tts_audio.insert(all_tts_audio.end(), piper_result.samples.begin(), piper_result.samples.end());
+        tts_sample_rate = piper_result.sampleRateHz;
+
+        std::cout << "  -> Latency : VTT(" << line.lastTranscriptionLatencyMs << "ms) + CT2(" << translation_latency_ms << "ms) + Piper(" << piper_ms << "ms) = " << (line.lastTranscriptionLatencyMs + translation_latency_ms + piper_ms) << "ms" << std::endl << std::endl;
     }
+
+    std::cout << "\n[4] Saving Synthesized Audio to disk..." << std::endl;
+    std::string out_file = "output_german.wav";
+    write_wav(out_file, all_tts_audio, tts_sample_rate);
+    std::cout << "  -> Saved to " << out_file << " (" << all_tts_audio.size() / (float)tts_sample_rate << " seconds of audio)" << std::endl;
 
     return 0;
 }
