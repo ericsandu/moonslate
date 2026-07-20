@@ -95,11 +95,24 @@ int main(int argc, char* argv[]) {
     sentencepiece::SentencePieceProcessor target_spm;
     source_spm.Load(ct2_model_path + "/source.spm");
     target_spm.Load(ct2_model_path + "/target.spm");
+    ctranslate2::ReplicaPoolConfig config;
+    config.num_threads_per_replica = 4;
 
     // Initialize Translator Engine
-    ctranslate2::Translator translator(ct2_model_path, ctranslate2::Device::CPU);
+    ctranslate2::Translator translator(ct2_model_path, ctranslate2::Device::CPU, ctranslate2::ComputeType::DEFAULT, {0}, false, config);
     
-    std::cout << "\n--- Chunked Real-Time Translation Stream ---" << std::endl;
+    // ==========================================
+    // 3. Text-To-Speech (Moonshine Kokoro)
+    // ==========================================
+    std::cout << "\n[3] Initializing Text-To-Speech Engine (Kokoro)..." << std::endl;
+    std::vector<moonshine_option_t> tts_options = {
+        {"g2p_root", "../../moonshine/examples/macos/TextToSpeech/tts-data"},
+        {"voice", "af_heart"},
+    };
+    // Note: Since we are using en_us for German text, it will speak German with a heavy American accent
+    moonshine::TextToSpeech tts("en_us", tts_options);
+
+    std::cout << "\n--- Chunked Real-Time Pipeline Stream ---" << std::endl;
 
     for (size_t i = 0; i < transcript.lines.size(); ++i) {
         const auto& line = transcript.lines[i];
@@ -130,7 +143,15 @@ int main(int argc, char* argv[]) {
         }
         
         std::cout << "  Translated : " << output_text << std::endl;
-        std::cout << "  Latency    : Moonshine VTT (" << line.lastTranscriptionLatencyMs << "ms) + CTranslate2 (" << translation_latency_ms << "ms) = " << (line.lastTranscriptionLatencyMs + translation_latency_ms) << "ms total delay" << std::endl << std::endl;
+        
+        // Generate Audio!
+        auto tts_start = std::chrono::high_resolution_clock::now();
+        auto tts_result = tts.synthesize(output_text);
+        auto tts_end = std::chrono::high_resolution_clock::now();
+        int tts_latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(tts_end - tts_start).count();
+        
+        std::cout << "  TTS Audio  : Generated " << tts_result.samples.size() << " samples (" << (tts_result.samples.size() / (float)tts_result.sampleRateHz) << " seconds of audio)" << std::endl;
+        std::cout << "  Latency    : Moonshine (" << line.lastTranscriptionLatencyMs << "ms) + CTranslate2 (" << translation_latency_ms << "ms) + TTS (" << tts_latency_ms << "ms) = " << (line.lastTranscriptionLatencyMs + translation_latency_ms + tts_latency_ms) << "ms total pipeline delay" << std::endl << std::endl;
     }
 
     return 0;
