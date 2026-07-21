@@ -26,5 +26,5 @@ cmake --build . -j$(nproc)
 cd ../../
 
 echo "=== Build Complete! ==="
-echo "Test the integration demo:"
-echo "./app/build/integration_demo ./moonshine/test-assets/two_cities.wav ./moonshine/test-assets/tiny-en ./app/models/opus-mt-en-de-ct2"
+echo "Launch Moonslate:"
+echo "./app/build/moonslate_app ./moonshine/test-assets/tiny-en"

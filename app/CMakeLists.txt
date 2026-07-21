@@ -39,25 +39,8 @@ set(SPM_ENABLE_SHARED OFF CACHE BOOL "Disable SPM shared lib" FORCE)
 set(SPM_ENABLE_TCMALLOC OFF CACHE BOOL "Disable SPM TCMalloc" FORCE)
 FetchContent_MakeAvailable(sentencepiece)
 
-add_executable(ct2_demo main.cpp)
-target_include_directories(ct2_demo PRIVATE ${sentencepiece_SOURCE_DIR}/src)
-target_link_libraries(ct2_demo PRIVATE ctranslate2 sentencepiece-static)
-add_executable(integration_demo integration.cpp)
-set_target_properties(integration_demo PROPERTIES CXX_STANDARD 20)
-target_include_directories(integration_demo PRIVATE 
-    ${sentencepiece_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/moonshine-utils
-)
-# Link to CTranslate2, SentencePiece, Moonshine, and ONNXRuntime
-target_link_libraries(integration_demo PRIVATE 
-    ctranslate2 
-    sentencepiece-static 
-    ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/build/libmoonshine.so
-)
-
 # ==========================================
-# Qt Multimedia Application (Headless Console)
+# Qt Multimedia Application (Moonslate Live)
 # ==========================================
 set(CMAKE_AUTOMOC ON)
 
@@ -65,18 +48,21 @@ find_package(Qt6 REQUIRED COMPONENTS Core Multimedia Network Widgets Gui)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../noise-suppression-for-voice/external/rnnoise rnnoise_build)
 
-add_executable(integration_qt
-    integration_qt.cpp
+add_executable(moonslate_app
+    main.cpp
+    MainWindow.cpp
+    LivePipelineWorker.cpp
+    AudioPlayer.cpp
     ModelDownloader.cpp
 )
-set_target_properties(integration_qt PROPERTIES CXX_STANDARD 20)
-target_include_directories(integration_qt PRIVATE 
+set_target_properties(moonslate_app PROPERTIES CXX_STANDARD 20)
+target_include_directories(moonslate_app PRIVATE 
     ${sentencepiece_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/moonshine-utils
     ${CMAKE_CURRENT_SOURCE_DIR}/../noise-suppression-for-voice/external/rnnoise/include
 )
-target_link_libraries(integration_qt PRIVATE 
+target_link_libraries(moonslate_app PRIVATE 
     ctranslate2 
     sentencepiece-static 
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/build/libmoonshine.so
