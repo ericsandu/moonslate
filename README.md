@@ -58,6 +58,7 @@ Moonslate is rapidly evolving. The following features are planned for future ite
 
 - [ ] **Two-Way Translation**: Currently, the pipeline is hardcoded for English -> Target Language. We plan to introduce full duplex conversation support (e.g., German back to English).
 - [ ] **Client-Server Architecture**: Support offloading the heavy ML processing (CTranslate2 / Moonshine) to a separate, self-hosted GPU processing server, allowing the Qt frontend to act as a lightweight, low-power client.
+- [ ] **Cross-Platform Builds**: Expand CI/CD pipelines to automatically build, package, and release native executable artifacts for Windows and macOS, alongside the current Linux releases.
 - [ ] **Hardware AEC Integration**: Replace the software muting hack with true DSP-based Acoustic Echo Cancellation for uninterrupted conversational flow.
 - [ ] **GPU Acceleration**: Expose options to leverage CUDA/TensorRT for Moonshine and CTranslate2 for users with dedicated hardware.
 - [ ] **Extended Language Support**: Expand the supported language matrix beyond French, German, and Spanish.
