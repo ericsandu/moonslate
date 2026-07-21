@@ -37,7 +37,10 @@ void ModelDownloader::downloadMoonshineModel(const QString& modelName, const QSt
         dir.mkpath(destDir);
     }
 
-    QString urlBase = "https://download.moonshine.ai/model/" + modelName + "/quantized/";
+    // [SETBACK & FIX]: Moonshine provides specific streaming models separate from their standard 
+    // static models. The streaming variants are named `X-streaming-en/quantized/` and they DO
+    // include the `adapter.ort` and `decoder_kv.ort` files required by our LivePipelineWorker.
+    QString urlBase = "https://download.moonshine.ai/model/" + modelName + "-streaming-en/quantized/";
     QStringList files = {
         "adapter.ort", "cross_kv.ort", "decoder_kv.ort", "decoder_kv_with_attention.ort",
         "encoder.ort", "frontend.ort", "streaming_config.json", "tokenizer.bin"

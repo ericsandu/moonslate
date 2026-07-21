@@ -58,7 +58,7 @@ MainWindow::MainWindow() {
         });
     }
 
-    supportedMoonshineModels = {"tiny", "base", "small", "medium"};
+    supportedMoonshineModels = {"tiny", "small", "medium"};
     QMenu* moonMenu = settingsMenu->addMenu("Moonshine Model");
     QActionGroup* moonGroup = new QActionGroup(this);
     moonGroup->setExclusive(true);
@@ -222,18 +222,8 @@ void MainWindow::checkAndStartPipeline() {
 
     deLabel->setText(currentLang.name + " (Translation)");
 
-    // NOTE: Moonshine currently only officially distributes 'tiny' and 'base' models 
-    // on their CDN. However, 'small' and 'medium' are sometimes requested by users 
-    // anticipating future releases or comparing against Whisper's naming schema.
-    // For now, we gracefully alias 'small' and 'medium' to 'base'.
-    QString targetMoonshineModel = currentMoonshineModelName;
-    if (targetMoonshineModel == "small" || targetMoonshineModel == "medium") {
-        qDebug() << "Note: Moonshine 'small' and 'medium' models are aliased to 'base' for now.";
-        targetMoonshineModel = "base";
-    }
-
     // [STATE 2] Validate Moonshine STT Model
-    QString moonDir = "../models/moonshine-" + targetMoonshineModel;
+    QString moonDir = "../models/moonshine-" + currentMoonshineModelName;
     if (!QDir(moonDir).exists() || QDir(moonDir).isEmpty()) {
         toggleBtn->setText("Downloading Moonshine " + currentMoonshineModelName + "...");
         ModelDownloader* downloader = new ModelDownloader(this);
@@ -246,7 +236,7 @@ void MainWindow::checkAndStartPipeline() {
             qDebug() << "Moonshine download error:" << err;
             downloader->deleteLater();
         });
-        downloader->downloadMoonshineModel(targetMoonshineModel, moonDir);
+        downloader->downloadMoonshineModel(currentMoonshineModelName, moonDir);
         return; // Wait for it to finish
     }
 
