@@ -6,6 +6,16 @@ echo "=== Moonslate Build Automation ==="
 echo "[1] Initializing and updating Git submodules..."
 git submodule update --init --recursive
 
+echo "Applying patches to moonshine submodule..."
+cd moonshine
+if git log -n 5 --oneline | grep -q "Expose raw acoustic fingerprint"; then
+    echo "Moonshine patches are already applied!"
+else
+    git am ../patches/*.patch
+    echo "Successfully applied moonshine patches."
+fi
+cd ../
+
 echo "[2] Building Moonshine Core Library..."
 mkdir -p moonshine/core/build
 cd moonshine/core/build
