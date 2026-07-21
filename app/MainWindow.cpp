@@ -187,10 +187,29 @@ void MainWindow::switchMoonshineModel(const QString& modelName) {
 }
 
 void MainWindow::checkAndStartPipeline() {
+    // -------------------------------------------------------------------------
+    // ARCHITECTURE: Pipeline Lifecycle Management
+    // 
+    // This function manages the entire initialization lifecycle of the translation
+    // pipeline. It uses a recursive state-machine approach:
+    // 
+    // State 1: Tear down any existing background pipeline worker.
+    // State 2: Check if the required Moonshine (STT) model is downloaded.
+    //          -> If not, start async download and RETURN.
+    // State 3: Check if the required CTranslate2 (MT) model is downloaded.
+    //          -> If not, start async download and RETURN.
+    // State 4: Start the LivePipelineWorker (which loads models into memory
+    //          and begins background audio processing).
+    //
+    // The ModelDownloader emits a finished signal that calls this function again,
+    // advancing to the next state seamlessly.
+    // -------------------------------------------------------------------------
+
     toggleBtn->setEnabled(false);
     toggleBtn->setText("Loading...");
     toggleBtn->setStyleSheet("QPushButton { background-color: #555555; color: white; font-weight: bold; font-size: 16px; border-radius: 8px; padding: 10px 20px; }");
     
+    // [STATE 1] Clean up existing worker to free GPU/CPU memory before loading new models
     if (worker) {
         worker->quit();
         worker->wait();
@@ -203,7 +222,18 @@ void MainWindow::checkAndStartPipeline() {
 
     deLabel->setText(currentLang.name + " (Translation)");
 
-    QString moonDir = "../models/moonshine-" + currentMoonshineModelName;
+    // NOTE: Moonshine currently only officially distributes 'tiny' and 'base' models 
+    // on their CDN. However, 'small' and 'medium' are sometimes requested by users 
+    // anticipating future releases or comparing against Whisper's naming schema.
+    // For now, we gracefully alias 'small' and 'medium' to 'base'.
+    QString targetMoonshineModel = currentMoonshineModelName;
+    if (targetMoonshineModel == "small" || targetMoonshineModel == "medium") {
+        qDebug() << "Note: Moonshine 'small' and 'medium' models are aliased to 'base' for now.";
+        targetMoonshineModel = "base";
+    }
+
+    // [STATE 2] Validate Moonshine STT Model
+    QString moonDir = "../models/moonshine-" + targetMoonshineModel;
     if (!QDir(moonDir).exists() || QDir(moonDir).isEmpty()) {
         toggleBtn->setText("Downloading Moonshine " + currentMoonshineModelName + "...");
         ModelDownloader* downloader = new ModelDownloader(this);
@@ -216,10 +246,11 @@ void MainWindow::checkAndStartPipeline() {
             qDebug() << "Moonshine download error:" << err;
             downloader->deleteLater();
         });
-        downloader->downloadMoonshineModel(currentMoonshineModelName, moonDir);
+        downloader->downloadMoonshineModel(targetMoonshineModel, moonDir);
         return; // Wait for it to finish
     }
 
+    // [STATE 3] Validate CTranslate2 Translation Model
     QString ct2Dir = "../models/opus-mt-en-" + currentLang.langCode + "-ct2";
     if (!QDir(ct2Dir).exists() || QDir(ct2Dir).isEmpty()) {
         toggleBtn->setText("Downloading " + currentLang.name + "...");
@@ -237,6 +268,10 @@ void MainWindow::checkAndStartPipeline() {
         return;
     }
 
+    // [STATE 4] Start Background Pipeline Execution
+    // Now that all dependencies are present locally, start the worker thread.
+    // The LivePipelineWorker handles audio capturing, streaming transcription, 
+    // and live translation, emitting results asynchronously.
     worker = new LivePipelineWorker(moonDir, ct2Dir, currentLang.piperVoice, currentLang.langCode);
     connect(this, &MainWindow::recordingToggled, worker, &LivePipelineWorker::setRecording);
     connect(worker, &LivePipelineWorker::transcriptUpdated, this, &MainWindow::appendTranscript);
