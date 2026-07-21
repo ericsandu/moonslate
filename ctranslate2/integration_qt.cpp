@@ -238,6 +238,17 @@ signals:
     void chunkReady(const QByteArray& pcmData, int sampleRate);
 
 protected:
+    float compute_cosine_similarity(const float* a, const float* b, size_t size) {
+        float dot = 0.0f, magA = 0.0f, magB = 0.0f;
+        for (size_t i = 0; i < size; ++i) {
+            dot += a[i] * b[i];
+            magA += a[i] * a[i];
+            magB += b[i] * b[i];
+        }
+        if (magA == 0.0f || magB == 0.0f) return 0.0f;
+        return dot / (std::sqrt(magA) * std::sqrt(magB));
+    }
+
     void run() override {
         std::cout << "[1] Initializing Live Voice-To-Text Transcription via Moonshine..." << std::endl;
         
@@ -276,7 +287,34 @@ protected:
         
         DenoiseState* rnnoise_st = rnnoise_create(NULL);
         std::vector<float> audio_buffer_16k;
+        std::vector<float> rolling_audio_16k; // Holds the last 4 seconds of raw audio for fingerprinting
+        std::mutex rolling_mutex;
         
+        std::vector<float> user_profile_audio;
+        QFile file("user_profile.wav");
+        if (file.open(QIODevice::ReadOnly)) {
+            file.seek(44); // skip WAV header
+            QByteArray raw = file.readAll();
+            const int16_t* ptr = reinterpret_cast<const int16_t*>(raw.constData());
+            size_t count = raw.size() / sizeof(int16_t);
+            for (size_t i = 0; i < count; ++i) {
+                user_profile_audio.push_back(ptr[i] / 32768.0f);
+            }
+        }
+        
+        float* user_embedding = nullptr;
+        uint64_t user_embedding_size = 0;
+        if (!user_profile_audio.empty()) {
+            std::cout << "[Profile] Extracting acoustic fingerprint for speaker verification..." << std::endl;
+            if (moonshine_extract_speaker_embedding(user_profile_audio.data(), user_profile_audio.size(), 16000, &user_embedding, &user_embedding_size) != 0) {
+                std::cerr << "[Warning] Failed to extract speaker embedding! Speaker verification will be disabled." << std::endl;
+            } else {
+                std::cout << "[Profile] Successfully enrolled user voice fingerprint! (Size: " << user_embedding_size << " dimensions)" << std::endl;
+            }
+        } else {
+            std::cout << "[Warning] No user_profile.wav found. Speaker verification will be disabled." << std::endl;
+        }
+
         stream.addListener([&](const moonshine::TranscriptEvent& ev) {
             if (ev.type != moonshine::TranscriptEvent::LINE_COMPLETED && 
                 ev.type != moonshine::TranscriptEvent::LINE_UPDATED) {
@@ -291,6 +329,32 @@ protected:
             if (vad < 0.6f || ev.line.text.empty()) { // VAD threshold to filter silence/hallucinations
                 std::cout << "[Silence Ignored] (VAD: " << vad << ") Text: " << ev.line.text << std::endl;
                 return;
+            }
+            
+            if (user_embedding != nullptr) {
+                float* live_embedding = nullptr;
+                uint64_t live_size = 0;
+                
+                std::vector<float> local_audio;
+                {
+                    std::lock_guard<std::mutex> lock(rolling_mutex);
+                    local_audio = rolling_audio_16k;
+                }
+                
+                if (!local_audio.empty()) {
+                    if (moonshine_extract_speaker_embedding(local_audio.data(), local_audio.size(), 16000, &live_embedding, &live_size) == 0) {
+                        if (live_size == user_embedding_size) {
+                            float similarity = compute_cosine_similarity(user_embedding, live_embedding, live_size);
+                            if (similarity < 0.65f) { // User voice fingerprint threshold
+                                std::cout << "[External Voice Rejected] (Similarity: " << similarity << ") Text: " << ev.line.text << std::endl;
+                                moonshine_free_speaker_embedding(live_embedding);
+                                return;
+                            }
+                            std::cout << "[Voice Match: " << similarity << "] ";
+                        }
+                        moonshine_free_speaker_embedding(live_embedding);
+                    }
+                }
             }
             
             std::cout << "[Line] (VAD: " << vad << ") " << ev.line.text << std::endl;
@@ -375,7 +439,16 @@ protected:
                 for (int i = 0; i < 160; ++i) {
                     // Moving average downsampling to prevent high-frequency aliasing artifacts
                     float val = (frame_out_48k[i*3] + frame_out_48k[i*3+1] + frame_out_48k[i*3+2]) / 3.0f;
-                    out_16k_chunk.push_back(val / 32768.0f);
+                    float normalized = val / 32768.0f;
+                    out_16k_chunk.push_back(normalized);
+                    {
+                        std::lock_guard<std::mutex> lock(rolling_mutex);
+                        rolling_audio_16k.push_back(normalized);
+                        // Keep only the last 4 seconds for speaker verification buffer
+                        if (rolling_audio_16k.size() > 16000 * 4) {
+                            rolling_audio_16k.erase(rolling_audio_16k.begin(), rolling_audio_16k.begin() + (rolling_audio_16k.size() - 16000 * 4));
+                        }
+                    }
                 }
                 
                 float current = current_max_vad.load();
@@ -394,6 +467,9 @@ protected:
         source->stop();
         delete source;
         rnnoise_destroy(rnnoise_st);
+        if (user_embedding != nullptr) {
+            moonshine_free_speaker_embedding(user_embedding);
+        }
     }
 };
 
@@ -459,6 +535,108 @@ int main(int argc, char** argv) {
         });
 
         downloader->downloadMoonshineModel(QString::fromStdString(modelName), "../models/" + QString::fromStdString(modelName));
+        return app.exec();
+    }
+
+    if (argc > 1 && std::string(argv[1]) == "enroll") {
+        std::cout << "\n=== User Voice Enrollment ===" << std::endl;
+        std::cout << "We are going to record your voice profile so the system only listens to you." << std::endl;
+        std::cout << "Please read the following sentence clearly into your microphone:" << std::endl;
+        std::cout << "\n  \"The quick brown fox jumps over the lazy dog and explores the beautiful forest.\"\n" << std::endl;
+        
+        std::cout << "Recording will start in 3 seconds..." << std::flush;
+        QThread::sleep(1); std::cout << " 2..." << std::flush;
+        QThread::sleep(1); std::cout << " 1..." << std::flush;
+        QThread::sleep(1); std::cout << "\n[Recording Started - Speak Now for 8 seconds]" << std::endl;
+
+        QAudioFormat format;
+        format.setSampleRate(16000);
+        format.setChannelCount(1);
+        format.setSampleFormat(QAudioFormat::Int16);
+
+        QAudioSource* source = new QAudioSource(QMediaDevices::defaultAudioInput(), format);
+        source->setBufferSize(16000 * 2 * 10); // 10 seconds buffer
+        
+        QFile file("user_profile.wav");
+        if (!file.open(QIODevice::WriteOnly)) {
+            std::cerr << "Failed to open user_profile.wav for writing!" << std::endl;
+            return 1;
+        }
+
+        // Write a dummy WAV header, we will fill in the sizes later
+        char dummy_header[44] = {0};
+        file.write(dummy_header, 44);
+
+        QIODevice* io = source->start();
+        if (!io) {
+            std::cerr << "Failed to open microphone!" << std::endl;
+            return 1;
+        }
+
+        DenoiseState* rnnoise_st = rnnoise_create(NULL);
+        std::vector<int16_t> audio_buffer_16k;
+        qint64 totalBytes = 0;
+
+        QObject::connect(io, &QIODevice::readyRead, [&]() {
+            QByteArray chunk = io->readAll();
+            const int16_t* ptr = reinterpret_cast<const int16_t*>(chunk.constData());
+            size_t count = chunk.size() / sizeof(int16_t);
+            for (size_t i = 0; i < count; ++i) {
+                audio_buffer_16k.push_back(ptr[i]);
+            }
+            
+            while (audio_buffer_16k.size() >= 160) {
+                float frame_in_48k[480];
+                float frame_out_48k[480];
+                for (int i = 0; i < 160; ++i) {
+                    float val = audio_buffer_16k[i];
+                    frame_in_48k[i*3] = val;
+                    frame_in_48k[i*3 + 1] = val;
+                    frame_in_48k[i*3 + 2] = val;
+                }
+                audio_buffer_16k.erase(audio_buffer_16k.begin(), audio_buffer_16k.begin() + 160);
+                rnnoise_process_frame(rnnoise_st, frame_out_48k, frame_in_48k);
+                
+                int16_t out_16k_chunk[160];
+                for (int i = 0; i < 160; ++i) {
+                    float val = (frame_out_48k[i*3] + frame_out_48k[i*3+1] + frame_out_48k[i*3+2]) / 3.0f;
+                    float clamped = std::max(-32768.0f, std::min(32767.0f, val));
+                    out_16k_chunk[i] = static_cast<int16_t>(clamped);
+                }
+                file.write(reinterpret_cast<const char*>(out_16k_chunk), 160 * sizeof(int16_t));
+                totalBytes += 160 * sizeof(int16_t);
+            }
+        });
+
+        // Record for 8 seconds
+        QTimer::singleShot(8000, [&]() {
+            source->stop();
+            rnnoise_destroy(rnnoise_st);
+            
+            // Fix up WAV header
+            file.seek(0);
+            QDataStream out(&file);
+            out.setByteOrder(QDataStream::LittleEndian);
+            out.writeRawData("RIFF", 4);
+            out << static_cast<quint32>(36 + totalBytes);
+            out.writeRawData("WAVE", 4);
+            out.writeRawData("fmt ", 4);
+            out << static_cast<quint32>(16); // Subchunk1Size
+            out << static_cast<quint16>(1);  // AudioFormat (PCM)
+            out << static_cast<quint16>(1);  // NumChannels
+            out << static_cast<quint32>(16000); // SampleRate
+            out << static_cast<quint32>(16000 * 2); // ByteRate
+            out << static_cast<quint16>(2);  // BlockAlign
+            out << static_cast<quint16>(16); // BitsPerSample
+            out.writeRawData("data", 4);
+            out << static_cast<quint32>(totalBytes);
+            
+            file.close();
+            std::cout << "[Recording Finished] Saved to user_profile.wav" << std::endl;
+            std::cout << "You can now use this profile for speaker verification!" << std::endl;
+            app.quit();
+        });
+
         return app.exec();
     }
 
