@@ -17,6 +17,7 @@ public:
     // e.g., repoId = "michaelfeil/ct2fast-opus-mt-en-de"
     // destDir = "../models/opus-mt-en-de-ct2"
     Q_INVOKABLE void downloadModel(const QString& repoId, const QString& destDir);
+    Q_INVOKABLE void downloadMoonshineModel(const QString& modelName, const QString& destDir);
 
 signals:
     void downloadProgress(const QString& filename, qint64 bytesReceived, qint64 bytesTotal);
@@ -31,10 +32,8 @@ private slots:
 
 private:
     QNetworkAccessManager* manager;
-    QString currentDestDir;
     QMap<QNetworkReply*, QFile*> activeDownloads;
-    QList<QString> filesToDownload;
-    QString currentRepoId;
+    QList<QPair<QString, QString>> downloadQueue; // <url, filepath>
 
     void startNextDownload();
 };

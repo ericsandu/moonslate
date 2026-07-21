@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <atomic>
 #include <cmath>
+#include <rnnoise.h>
 
 #include "ModelDownloader.h"
 
@@ -168,6 +169,7 @@ protected:
         std::vector<moonshine_option_t> piper_options = {
             {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
             {"voice", "piper_de_DE-thorsten-medium"},
+            {"speed", "0.75"}, // Slow down the TTS speed slightly (1.0 is default)
         };
         moonshine::TextToSpeech tts_piper("de", piper_options);
 
@@ -227,7 +229,8 @@ class LivePipelineWorker : public QThread {
 public:
     QString moonPath;
     QString ct2Path;
-    std::atomic<float> current_max_rms{0.0f};
+    std::atomic<float> current_max_vad{0.0f};
+    std::atomic<long long> ignore_audio_until_ms{0};
 
     LivePipelineWorker(QString m, QString c) : moonPath(m), ct2Path(c) {}
 
@@ -260,7 +263,7 @@ protected:
         // We use a dedicated thread for translation/TTS to not block the audio capture thread, 
         // but for now we'll do it sequentially in this worker thread using Moonshine's stream API.
         
-        // However, QAudioSource needs an event loop. So we'll create it here.
+        // QAudioSource needs an event loop. So we'll create it here.
         QAudioFormat format;
         format.setSampleRate(16000);
         format.setChannelCount(1);
@@ -270,6 +273,9 @@ protected:
         source->setBufferSize(16000 * 2 * 2); // 2 seconds
 
         moonshine::Stream stream = transcriber.createStream(1.0, 0); // 1.0 second update interval
+        
+        DenoiseState* rnnoise_st = rnnoise_create(NULL);
+        std::vector<float> audio_buffer_16k;
         
         stream.addListener([&](const moonshine::TranscriptEvent& ev) {
             if (ev.type != moonshine::TranscriptEvent::LINE_COMPLETED && 
@@ -281,13 +287,13 @@ protected:
             if (!ev.line.isComplete) {
                 return;
             }
-            float rms = current_max_rms.exchange(0.0f);
-            if (rms < 0.10f) { // Increased RMS threshold to filter silence/hallucinations
-                std::cout << "[Silence Ignored] (RMS: " << rms << ") Text: " << ev.line.text << std::endl;
+            float vad = current_max_vad.exchange(0.0f);
+            if (vad < 0.6f || ev.line.text.empty()) { // VAD threshold to filter silence/hallucinations
+                std::cout << "[Silence Ignored] (VAD: " << vad << ") Text: " << ev.line.text << std::endl;
                 return;
             }
             
-            std::cout << "[Line] (RMS: " << rms << ") " << ev.line.text << std::endl;
+            std::cout << "[Line] (VAD: " << vad << ") " << ev.line.text << std::endl;
             
             std::vector<std::string> tokens;
             source_spm.Encode(ev.line.text, &tokens);
@@ -303,6 +309,16 @@ protected:
             std::cout << "  Translated : " << output_text << std::endl;
             
             auto piper_result = tts_piper.synthesize(output_text);
+            
+            int duration_ms = (piper_result.samples.size() * 1000) / piper_result.sampleRateHz;
+            auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()).time_since_epoch().count();
+            
+            long long current_ignore = ignore_audio_until_ms.load();
+            if (now < current_ignore) {
+                ignore_audio_until_ms.store(current_ignore + duration_ms + 400); // Add 400ms buffer for speaker reverb
+            } else {
+                ignore_audio_until_ms.store(now + duration_ms + 400);
+            }
             
             QByteArray pcmData;
             pcmData.reserve(piper_result.samples.size() * sizeof(int16_t));
@@ -328,23 +344,41 @@ protected:
             QByteArray raw = io->readAll();
             if (raw.isEmpty()) return;
 
-            const int16_t* ptr = reinterpret_cast<const int16_t*>(raw.constData());
-            size_t count = raw.size() / sizeof(int16_t);
-            std::vector<float> floats(count);
-            float sum_sq = 0.0f;
-            for (size_t i = 0; i < count; ++i) {
-                float val = ptr[i] / 32768.0f;
-                floats[i] = val;
-                sum_sq += val * val;
-            }
-            
-            if (count > 0) {
-                float rms = std::sqrt(sum_sq / count);
-                float current = current_max_rms.load();
-                while (rms > current && !current_max_rms.compare_exchange_weak(current, rms)) {}
+            auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()).time_since_epoch().count();
+            if (now < ignore_audio_until_ms.load()) {
+                // Drop the audio chunk completely to prevent echo cancellation loops
+                audio_buffer_16k.clear();
+                return;
             }
 
-            stream.addAudio(floats, 16000);
+            const int16_t* ptr = reinterpret_cast<const int16_t*>(raw.constData());
+            size_t count = raw.size() / sizeof(int16_t);
+            std::vector<float> out_16k_chunk;
+            for (size_t i = 0; i < count; ++i) {
+                audio_buffer_16k.push_back(static_cast<float>(ptr[i]));
+                out_16k_chunk.push_back(ptr[i] / 32768.0f);
+            }
+
+            while (audio_buffer_16k.size() >= 160) {
+                float frame_in_48k[480];
+                float frame_out_48k[480];
+                for (int i = 0; i < 160; ++i) {
+                    float val = audio_buffer_16k[i];
+                    frame_in_48k[i*3]     = val;
+                    frame_in_48k[i*3 + 1] = val;
+                    frame_in_48k[i*3 + 2] = val;
+                }
+                audio_buffer_16k.erase(audio_buffer_16k.begin(), audio_buffer_16k.begin() + 160);
+                
+                float vad = rnnoise_process_frame(rnnoise_st, frame_out_48k, frame_in_48k);
+                
+                float current = current_max_vad.load();
+                while (vad > current && !current_max_vad.compare_exchange_weak(current, vad)) {}
+            }
+
+            if (!out_16k_chunk.empty()) {
+                stream.addAudio(out_16k_chunk, 16000);
+            }
         });
 
         // Run the event loop for QAudioSource
@@ -353,6 +387,7 @@ protected:
         stream.stop();
         source->stop();
         delete source;
+        rnnoise_destroy(rnnoise_st);
     }
 };
 
@@ -387,6 +422,37 @@ int main(int argc, char** argv) {
         std::cout << "Starting download of " << repoId.toStdString() << " to " << destDir.toStdString() << std::endl;
         downloader->downloadModel(repoId, destDir);
 
+        return app.exec();
+    }
+
+    if (argc > 1 && std::string(argv[1]) == "download_moonshine") {
+        std::string modelName = "small-streaming-en";
+        if (argc > 2) {
+            modelName = argv[2];
+        }
+
+        ModelDownloader* downloader = new ModelDownloader(&app);
+        
+        QObject::connect(downloader, &ModelDownloader::downloadProgress, [](const QString& filename, qint64 bytesReceived, qint64 bytesTotal) {
+            std::cout << "\rDownloading " << filename.toStdString() << "... " 
+                      << bytesReceived << " / " << bytesTotal << " bytes" << std::flush;
+        });
+        
+        QObject::connect(downloader, &ModelDownloader::fileDownloaded, [](const QString& filename) {
+            std::cout << "\nFinished downloading " << filename.toStdString() << "!" << std::endl;
+        });
+        
+        QObject::connect(downloader, &ModelDownloader::errorOccurred, [&](const QString& errorString) {
+            std::cerr << "\nError: " << errorString.toStdString() << std::endl;
+            app.quit();
+        });
+        
+        QObject::connect(downloader, &ModelDownloader::downloadFinished, [&]() {
+            std::cout << "\nAll Moonshine files downloaded successfully!" << std::endl;
+            app.quit();
+        });
+
+        downloader->downloadMoonshineModel(QString::fromStdString(modelName), "../models/" + QString::fromStdString(modelName));
         return app.exec();
     }
 

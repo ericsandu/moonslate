@@ -9,16 +9,12 @@ ModelDownloader::ModelDownloader(QObject *parent) : QObject(parent) {
 }
 
 void ModelDownloader::downloadModel(const QString& repoId, const QString& destDir) {
-    currentRepoId = repoId;
-    currentDestDir = destDir;
-
     QDir dir;
-    if (!dir.exists(currentDestDir)) {
-        dir.mkpath(currentDestDir);
+    if (!dir.exists(destDir)) {
+        dir.mkpath(destDir);
     }
 
-    // Default files needed for a CTranslate2 Opus-MT model
-    filesToDownload = {
+    QStringList files = {
         "config.json",
         "model.bin",
         "shared_vocabulary.json",
@@ -26,18 +22,43 @@ void ModelDownloader::downloadModel(const QString& repoId, const QString& destDi
         "target.spm"
     };
 
+    for (const QString& file : files) {
+        QString url = QString("https://huggingface.co/%1/resolve/main/%2").arg(repoId).arg(file);
+        QString path = QDir(destDir).filePath(file);
+        downloadQueue.append(qMakePair(url, path));
+    }
+
+    startNextDownload();
+}
+
+void ModelDownloader::downloadMoonshineModel(const QString& modelName, const QString& destDir) {
+    QDir dir;
+    if (!dir.exists(destDir)) {
+        dir.mkpath(destDir);
+    }
+
+    QString urlBase = "https://download.moonshine.ai/model/" + modelName + "/quantized/";
+    QStringList files = {
+        "adapter.ort", "cross_kv.ort", "decoder_kv.ort", "decoder_kv_with_attention.ort",
+        "encoder.ort", "frontend.ort", "streaming_config.json", "tokenizer.bin"
+    };
+
+    for (const QString& file : files) {
+        downloadQueue.append(qMakePair(urlBase + file, QDir(destDir).filePath(file)));
+    }
+
     startNextDownload();
 }
 
 void ModelDownloader::startNextDownload() {
-    if (filesToDownload.isEmpty()) {
+    if (downloadQueue.isEmpty()) {
         emit downloadFinished();
         return;
     }
 
-    QString filename = filesToDownload.takeFirst();
-    QString urlStr = QString("https://huggingface.co/%1/resolve/main/%2").arg(currentRepoId).arg(filename);
-    QUrl url(urlStr);
+    auto pair = downloadQueue.takeFirst();
+    QUrl url(pair.first);
+    QString filePath = pair.second;
 
     QNetworkRequest request(url);
     // Follow redirects because HuggingFace uses them for LFS files
@@ -45,7 +66,6 @@ void ModelDownloader::startNextDownload() {
 
     QNetworkReply* reply = manager->get(request);
 
-    QString filePath = QDir(currentDestDir).filePath(filename);
     QFile* file = new QFile(filePath);
     if (!file->open(QIODevice::WriteOnly)) {
         emit errorOccurred("Could not open file for writing: " + filePath);
@@ -89,7 +109,9 @@ void ModelDownloader::onReplyFinished(QNetworkReply* reply) {
         QFileInfo fileInfo(file->fileName());
         if (fileInfo.fileName() == "shared_vocabulary.json") {
             qDebug() << "Failed to download shared_vocabulary.json, trying shared_vocabulary.txt...";
-            filesToDownload.prepend("shared_vocabulary.txt");
+            QString urlStr = reply->request().url().toString().replace("shared_vocabulary.json", "shared_vocabulary.txt");
+            QString path = file->fileName().replace("shared_vocabulary.json", "shared_vocabulary.txt");
+            downloadQueue.prepend(qMakePair(urlStr, path));
             file->remove(); // delete the empty/failed file
         } else {
             emit errorOccurred("Download failed: " + reply->errorString());
