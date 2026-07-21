@@ -62,6 +62,35 @@ bool load_wav_data(const char *path, float **out_float_data,
   return true;
 }
 
+#include <queue>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
+
+// Global Real-Time Audio Queue
+std::queue<float> audio_queue;
+std::mutex audio_mutex;
+bool playback_finished = false;
+
+// Miniaudio callback to feed the audio driver asynchronously
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+    float* out = (float*)pOutput;
+    std::lock_guard<std::mutex> lock(audio_mutex);
+    
+    for (ma_uint32 i = 0; i < frameCount; ++i) {
+        if (!audio_queue.empty()) {
+            out[i] = audio_queue.front();
+            audio_queue.pop();
+        } else {
+            out[i] = 0.0f; // Silence if queue underruns
+        }
+    }
+}
+
 // Helper function to write raw PCM floats to a .wav file
 void write_wav(const std::string& filename, const std::vector<float>& samples, int sampleRate) {
     std::ofstream file(filename, std::ios::binary);
@@ -150,10 +179,10 @@ int main(int argc, char** argv) {
     // ==========================================
     // 3. Text-To-Speech (Piper)
     // ==========================================
-    std::cout << "\n[3] Initializing Piper TTS Engine (German Thorsten High)..." << std::endl;
+    std::cout << "\n[3] Initializing Piper TTS Engine (German Neutral)..." << std::endl;
     std::vector<moonshine_option_t> piper_options = {
         {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
-        {"voice", "piper_de_DE-thorsten-high"},
+        {"voice", "piper_de_DE-thorsten-medium"},
     };
     moonshine::TextToSpeech tts_piper("de", piper_options);
 
@@ -161,6 +190,14 @@ int main(int argc, char** argv) {
 
     std::vector<float> all_tts_audio;
     int tts_sample_rate = 0;
+
+    ma_device_config audio_config = ma_device_config_init(ma_device_type_playback);
+    audio_config.playback.format   = ma_format_f32;
+    audio_config.playback.channels = 1;
+    audio_config.dataCallback      = data_callback;
+
+    ma_device device;
+    bool device_initialized = false;
 
     for (size_t i = 0; i < transcript.lines.size(); ++i) {
         const auto& line = transcript.lines[i];
@@ -198,7 +235,26 @@ int main(int argc, char** argv) {
         auto piper_result = tts_piper.synthesize(output_text);
         int piper_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - piper_start).count();
         
-        // Append to full audio buffer
+        // Start audio device lazily when we know the sample rate
+        if (!device_initialized) {
+            audio_config.sampleRate = piper_result.sampleRateHz;
+            if (ma_device_init(NULL, &audio_config, &device) != MA_SUCCESS) {
+                std::cerr << "Failed to initialize audio playback device!" << std::endl;
+                return -1;
+            }
+            ma_device_start(&device);
+            device_initialized = true;
+        }
+
+        // Push samples to the real-time playback queue
+        {
+            std::lock_guard<std::mutex> lock(audio_mutex);
+            for (float s : piper_result.samples) {
+                audio_queue.push(s);
+            }
+        }
+
+        // Append to full audio buffer for saving the .wav record
         all_tts_audio.insert(all_tts_audio.end(), piper_result.samples.begin(), piper_result.samples.end());
         tts_sample_rate = piper_result.sampleRateHz;
 
@@ -206,9 +262,22 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "\n[4] Saving Synthesized Audio to disk..." << std::endl;
-    std::string out_file = "output_german_high.wav";
+    std::string out_file = "output_german.wav";
     write_wav(out_file, all_tts_audio, tts_sample_rate);
     std::cout << "  -> Saved to " << out_file << " (" << all_tts_audio.size() / (float)tts_sample_rate << " seconds of audio)" << std::endl;
+
+    std::cout << "\n[5] Waiting for playback queue to finish..." << std::endl;
+    while(true) {
+        {
+            std::lock_guard<std::mutex> lock(audio_mutex);
+            if(audio_queue.empty()) break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    if (device_initialized) {
+        ma_device_uninit(&device);
+    }
 
     return 0;
 }
