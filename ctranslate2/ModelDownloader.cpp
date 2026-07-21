@@ -104,7 +104,8 @@ void ModelDownloader::onReplyFinished(QNetworkReply* reply) {
     QFile* file = activeDownloads.take(reply);
     file->close();
 
-    if (reply->error() != QNetworkReply::NoError) {
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (reply->error() != QNetworkReply::NoError || statusCode >= 400) {
         // Fallback for missing files (e.g. shared_vocabulary.txt instead of .json)
         QFileInfo fileInfo(file->fileName());
         if (fileInfo.fileName() == "shared_vocabulary.json") {
@@ -114,7 +115,9 @@ void ModelDownloader::onReplyFinished(QNetworkReply* reply) {
             downloadQueue.prepend(qMakePair(urlStr, path));
             file->remove(); // delete the empty/failed file
         } else {
-            emit errorOccurred("Download failed: " + reply->errorString());
+            file->remove(); // remove the empty/error file
+            emit errorOccurred("Download failed for " + fileInfo.fileName() + ": " + reply->errorString());
+            downloadQueue.clear(); // abort the queue
         }
     } else {
         QFileInfo fileInfo(file->fileName());
@@ -123,6 +126,11 @@ void ModelDownloader::onReplyFinished(QNetworkReply* reply) {
 
     delete file;
     reply->deleteLater();
+
+    if (downloadQueue.isEmpty() && activeDownloads.isEmpty() && (reply->error() != QNetworkReply::NoError || statusCode >= 400)) {
+        // Queue aborted due to error, do not start next download or emit finished.
+        return;
+    }
 
     startNextDownload();
 }

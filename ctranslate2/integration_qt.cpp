@@ -418,6 +418,7 @@ struct LangConfig {
     QString name;
     QString opusRepo;
     QString piperVoice;
+    QString langCode;
 };
 
 class MainWindow : public QMainWindow {
@@ -435,16 +436,9 @@ public:
     AudioPlayer* player = nullptr;
     
     QList<LangConfig> supportedLanguages = {
-        {"Arabic", "gaudi/opus-mt-en-ar-ctranslate2", "piper_ar_JO-kareem-medium"},
-        {"Dutch", "gaudi/opus-mt-en-nl-ctranslate2", "piper_nl_NL-mls-medium"},
-        {"French", "gaudi/opus-mt-en-fr-ctranslate2", "piper_fr_FR-upmc-medium"},
-        {"German", "gaudi/opus-mt-en-de-ctranslate2", "piper_de_DE-thorsten-medium"},
-        {"Hindi", "gaudi/opus-mt-en-hi-ctranslate2", "piper_hi_IN-pratham-medium"},
-        {"Italian", "gaudi/opus-mt-en-it-ctranslate2", "piper_it_IT-paola-medium"},
-        {"Russian", "gaudi/opus-mt-en-ru-ctranslate2", "piper_ru_RU-irina-medium"},
-        {"Spanish", "gaudi/opus-mt-en-es-ctranslate2", "piper_es_ES-davefx-medium"},
-        {"Ukrainian", "gaudi/opus-mt-en-uk-ctranslate2", "piper_uk_UA-lada-x_low"},
-        {"Vietnamese", "gaudi/opus-mt-en-vi-ctranslate2", "piper_vi_VN-vispeech-medium"}
+        {"French", "michaelfeil/ct2fast-opus-mt-en-fr", "piper_fr_FR-upmc-medium", "fr"},
+        {"German", "michaelfeil/ct2fast-opus-mt-en-de", "piper_de_DE-thorsten-medium", "de"},
+        {"Spanish", "michaelfeil/ct2fast-opus-mt-en-es", "piper_es_ES-davefx-medium", "es"}
     };
 
     MainWindow(QString mPath) : moonPath(mPath) {
@@ -601,7 +595,7 @@ public slots:
 
         deLabel->setText(lang.name + " (Translation)");
 
-        QString modelDir = "../models/opus-mt-en-" + lang.opusRepo.split("-").at(3) + "-ct2";
+        QString modelDir = "../models/opus-mt-en-" + lang.langCode + "-ct2";
         if (!QDir(modelDir).exists()) {
             toggleBtn->setText("Downloading " + lang.name + "...");
             ModelDownloader* downloader = new ModelDownloader(this);
@@ -842,7 +836,7 @@ int main(int argc, char** argv) {
         MainWindow window(argv[2]);
         window.show();
         
-        LangConfig defaultLang = {"German", "gaudi/opus-mt-en-de-ctranslate2", "piper_de_DE-thorsten-medium"};
+        LangConfig defaultLang = {"German", "michaelfeil/ct2fast-opus-mt-en-de", "piper_de_DE-thorsten-medium", "de"};
         window.switchLanguage(defaultLang);
 
         return app.exec();
