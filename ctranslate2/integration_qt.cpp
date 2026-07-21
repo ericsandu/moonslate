@@ -15,6 +15,11 @@
 #include <QLabel>
 #include <QScrollBar>
 #include <QWidget>
+#include <QMenu>
+#include <QToolButton>
+#include <QActionGroup>
+#include <QAction>
+#include <QDir>
 #include <QAudioSink>
 #include <QMediaDevices>
 #include <QAudioFormat>
@@ -239,9 +244,10 @@ public:
     std::atomic<float> current_max_vad{0.0f};
     std::atomic<long long> ignore_audio_until_ms{0};
     std::atomic<bool> is_recording{true};
+    QString piperVoice;
 
-    LivePipelineWorker(QString m, QString c) 
-        : moonPath(m), ct2Path(c) {}
+    LivePipelineWorker(QString m, QString c, QString pv) 
+        : moonPath(m), ct2Path(c), piperVoice(pv) {}
 
 public slots:
     void setRecording(bool rec) {
@@ -251,6 +257,7 @@ public slots:
 signals:
     void chunkReady(const QByteArray& pcmData, int sampleRate);
     void transcriptUpdated(const QString& original, const QString& translated, const QString& execTime);
+    void pipelineReady();
 
 protected:
     void run() override {
@@ -267,9 +274,10 @@ protected:
         ctranslate2::Translator translator(ct2Path.toUtf8().constData(), ctranslate2::Device::CPU, ctranslate2::ComputeType::DEFAULT, {0}, false, config);
 
         std::cout << "[3] Initializing Piper TTS Engine..." << std::endl;
+        std::string voiceStr = piperVoice.toStdString();
         std::vector<moonshine_option_t> piper_options = {
             {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
-            {"voice", "piper_de_DE-thorsten-medium"},
+            {"voice", voiceStr.c_str()},
         };
         moonshine::TextToSpeech tts_piper("de", piper_options);
 
@@ -347,6 +355,7 @@ protected:
         }
 
         std::cout << "\n--- Live Streaming Started ---\n" << std::endl;
+        emit pipelineReady();
         stream.start();
 
         connect(io, &QIODevice::readyRead, this, [&]() {
@@ -405,16 +414,44 @@ protected:
     }
 };
 
+struct LangConfig {
+    QString name;
+    QString opusRepo;
+    QString piperVoice;
+};
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     QTextEdit* englishLog;
     QTextEdit* germanLog;
     QPushButton* toggleBtn;
+    QToolButton* settingsBtn;
+    QMenu* settingsMenu;
+    QLabel* deLabel;
+    
+    QString moonPath;
+    LivePipelineWorker* worker = nullptr;
+    AudioPlayer* player = nullptr;
+    
+    QList<LangConfig> supportedLanguages = {
+        {"Arabic", "gaudi/opus-mt-en-ar-ctranslate2", "piper_ar_JO-kareem-medium"},
+        {"Dutch", "gaudi/opus-mt-en-nl-ctranslate2", "piper_nl_NL-mls-medium"},
+        {"French", "gaudi/opus-mt-en-fr-ctranslate2", "piper_fr_FR-upmc-medium"},
+        {"German", "gaudi/opus-mt-en-de-ctranslate2", "piper_de_DE-thorsten-medium"},
+        {"Hindi", "gaudi/opus-mt-en-hi-ctranslate2", "piper_hi_IN-pratham-medium"},
+        {"Italian", "gaudi/opus-mt-en-it-ctranslate2", "piper_it_IT-paola-medium"},
+        {"Russian", "gaudi/opus-mt-en-ru-ctranslate2", "piper_ru_RU-irina-medium"},
+        {"Spanish", "gaudi/opus-mt-en-es-ctranslate2", "piper_es_ES-davefx-medium"},
+        {"Ukrainian", "gaudi/opus-mt-en-uk-ctranslate2", "piper_uk_UA-lada-x_low"},
+        {"Vietnamese", "gaudi/opus-mt-en-vi-ctranslate2", "piper_vi_VN-vispeech-medium"}
+    };
 
-    MainWindow() {
-        setWindowTitle("Moonslate Live Translator (En->De)");
+    MainWindow(QString mPath) : moonPath(mPath) {
+        setWindowTitle("Moonslate Live Translator");
         resize(1000, 600);
+        
+        player = new AudioPlayer();
 
         QWidget* central = new QWidget();
         setCentralWidget(central);
@@ -428,12 +465,35 @@ public:
         
         headerLayout->addStretch();
         
-        toggleBtn = new QPushButton("Recording: ON");
+        settingsBtn = new QToolButton();
+        settingsBtn->setText("⚙️");
+        settingsBtn->setStyleSheet("QToolButton { background: transparent; border: none; font-size: 24px; color: white; padding: 5px; }");
+        settingsBtn->setPopupMode(QToolButton::InstantPopup);
+        settingsMenu = new QMenu(settingsBtn);
+        settingsMenu->setStyleSheet("QMenu { background-color: #2E2E2E; color: white; font-size: 14px; } QMenu::item:selected { background-color: #4CAF50; }");
+        
+        QActionGroup* langGroup = new QActionGroup(this);
+        langGroup->setExclusive(true);
+        for (const auto& lang : supportedLanguages) {
+            QAction* act = new QAction(lang.name, this);
+            act->setCheckable(true);
+            if (lang.name == "German") act->setChecked(true);
+            langGroup->addAction(act);
+            settingsMenu->addAction(act);
+            connect(act, &QAction::triggered, [this, lang]() {
+                switchLanguage(lang);
+            });
+        }
+        settingsBtn->setMenu(settingsMenu);
+        headerLayout->addWidget(settingsBtn);
+        
+        toggleBtn = new QPushButton("Loading...");
+        toggleBtn->setEnabled(false);
         toggleBtn->setCheckable(true);
         toggleBtn->setChecked(true);
         toggleBtn->setStyleSheet(
             "QPushButton {"
-            "  background-color: #4CAF50; color: white;"
+            "  background-color: #555555; color: white;"
             "  font-weight: bold; font-size: 16px;"
             "  border-radius: 8px; padding: 10px 20px;"
             "}"
@@ -460,7 +520,7 @@ public:
         boxesLayout->addLayout(enLayout);
 
         QVBoxLayout* deLayout = new QVBoxLayout();
-        QLabel* deLabel = new QLabel("German (Translation)");
+        deLabel = new QLabel("Translation");
         deLabel->setStyleSheet("font-size: 16px; color: #4CAF50; margin-bottom: 5px; font-weight: bold;");
         deLayout->addWidget(deLabel);
         germanLog = new QTextEdit();
@@ -527,7 +587,55 @@ public slots:
         germanLog->verticalScrollBar()->setValue(germanLog->verticalScrollBar()->maximum());
     }
 
+    void switchLanguage(const LangConfig& lang) {
+        toggleBtn->setEnabled(false);
+        toggleBtn->setText("Loading...");
+        toggleBtn->setStyleSheet("QPushButton { background-color: #555555; color: white; font-weight: bold; font-size: 16px; border-radius: 8px; padding: 10px 20px; }");
+        
+        if (worker) {
+            worker->quit();
+            worker->wait();
+            worker->deleteLater();
+            worker = nullptr;
+        }
+
+        deLabel->setText(lang.name + " (Translation)");
+
+        QString modelDir = "../models/opus-mt-en-" + lang.opusRepo.split("-").at(3) + "-ct2";
+        if (!QDir(modelDir).exists()) {
+            toggleBtn->setText("Downloading " + lang.name + "...");
+            ModelDownloader* downloader = new ModelDownloader(this);
+            connect(downloader, &ModelDownloader::downloadFinished, [this, downloader, lang, modelDir]() {
+                downloader->deleteLater();
+                startPipeline(lang, modelDir);
+            });
+            downloader->downloadModel(lang.opusRepo, modelDir);
+        } else {
+            startPipeline(lang, modelDir);
+        }
+    }
+
+    void startPipeline(const LangConfig& lang, const QString& modelDir) {
+        worker = new LivePipelineWorker(moonPath, modelDir, lang.piperVoice);
+        connect(this, &MainWindow::recordingToggled, worker, &LivePipelineWorker::setRecording);
+        connect(worker, &LivePipelineWorker::transcriptUpdated, this, &MainWindow::appendTranscript);
+        connect(worker, &LivePipelineWorker::chunkReady, player, &AudioPlayer::onChunkReady, Qt::QueuedConnection);
+        connect(worker, &LivePipelineWorker::pipelineReady, this, [this]() {
+            toggleBtn->setEnabled(true);
+            if (toggleBtn->isChecked()) {
+                toggleBtn->setText("Recording: ON");
+                toggleBtn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; font-size: 16px; border-radius: 8px; padding: 10px 20px; }");
+            } else {
+                toggleBtn->setText("Recording: OFF");
+                toggleBtn->setStyleSheet("QPushButton { background-color: #F44336; color: white; font-weight: bold; font-size: 16px; border-radius: 8px; padding: 10px 20px; }");
+            }
+            if (worker) worker->setRecording(toggleBtn->isChecked());
+        });
+        worker->start();
+    }
+
     void onToggle(bool checked) {
+        if (!toggleBtn->isEnabled()) return;
         if (checked) {
             toggleBtn->setText("Recording: ON");
             toggleBtn->setStyleSheet(
@@ -726,21 +834,17 @@ int main(int argc, char** argv) {
     }
 
     if (std::string(argv[1]) == "live") {
-        if (argc < 4) {
-            std::cerr << "Live mode requires: <moonshine_model_dir> <ct2_model_dir>\n";
+        if (argc < 3) {
+            std::cerr << "Live mode requires: <moonshine_model_dir>\n";
             return 1;
         }
-        LivePipelineWorker* worker = new LivePipelineWorker(argv[2], argv[3]);
-        AudioPlayer* player = new AudioPlayer();
 
-        MainWindow window;
+        MainWindow window(argv[2]);
         window.show();
-
-        QObject::connect(worker, &LivePipelineWorker::chunkReady, player, &AudioPlayer::onChunkReady, Qt::QueuedConnection);
-        QObject::connect(worker, &LivePipelineWorker::transcriptUpdated, &window, &MainWindow::appendTranscript, Qt::QueuedConnection);
-        QObject::connect(&window, &MainWindow::recordingToggled, worker, &LivePipelineWorker::setRecording, Qt::QueuedConnection);
         
-        worker->start();
+        LangConfig defaultLang = {"German", "gaudi/opus-mt-en-de-ctranslate2", "piper_de_DE-thorsten-medium"};
+        window.switchLanguage(defaultLang);
+
         return app.exec();
     }
 
