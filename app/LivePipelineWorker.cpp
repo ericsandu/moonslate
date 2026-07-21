@@ -7,9 +7,16 @@
 #include <ctranslate2/translator.h>
 #include <sentencepiece_processor.h>
 
+// [SETBACK & FIX]: Qt defines a macro called 'emit' globally which completely breaks 
+// standard C++ methods that happen to be named 'emit'. 
+// The Moonshine library uses `Stream::emit()` internally for streaming tokens.
+// If we include moonshine-cpp.h directly after Qt headers, it fails to compile
+// with syntax errors due to the preprocessor expanding 'emit' into an empty string.
+// To fix this, we `#undef emit` before including moonshine, and then `#define emit` back.
 #undef emit
 #include "moonshine-cpp.h"
 #define emit
+
 
 #include <QAudioFormat>
 #include <QMediaDevices>
@@ -54,6 +61,10 @@ void LivePipelineWorker::setRecording(bool rec) {
         source->setBufferSize(16000 * 2 * 2); // 2 seconds
 
         moonshine::Stream stream = transcriber.createStream(1.0, 0); 
+        
+        // [ARCHITECTURE & SETBACK]: Moonshine STT is extremely sensitive and will hallucinate text 
+        // if fed pure static or silence. To combat this, we integrate RNNoise (Recurrent Neural Network Noise Suppression)
+        // to provide a reliable Voice Activity Detection (VAD) probability.
         DenoiseState* rnnoise_st = rnnoise_create(NULL);
         std::vector<float> audio_buffer_16k;
         
@@ -64,6 +75,8 @@ void LivePipelineWorker::setRecording(bool rec) {
             }
             if (!ev.line.isComplete) return;
             
+            // [VAD FILTERING]: Only proceed if RNNoise detected voice activity with > 60% confidence
+            // at some point during this chunk's ingestion. Otherwise, silently drop the transcription.
             float vad = current_max_vad.exchange(0.0f);
             if (vad < 0.6f || ev.line.text.empty()) return; // Drop silence
             
@@ -94,6 +107,10 @@ void LivePipelineWorker::setRecording(bool rec) {
             int duration_ms = (piper_result.samples.size() * 1000) / piper_result.sampleRateHz;
             auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()).time_since_epoch().count();
             
+            // [SETBACK & FIX: Software AEC]: When the TTS begins playing, the microphone immediately picks it up, 
+            // causing an infinite loop where the app endlessly translates its own speech output. 
+            // Real Acoustic Echo Cancellation (AEC) is complex. Our hack is to simply mute microphone 
+            // ingestion for the exact duration of the generated TTS audio + a 400ms padding.
             long long current_ignore = ignore_audio_until_ms.load();
             if (now < current_ignore) {
                 ignore_audio_until_ms.store(current_ignore + duration_ms + 400); 

@@ -61,7 +61,10 @@ void ModelDownloader::startNextDownload() {
     QString filePath = pair.second;
 
     QNetworkRequest request(url);
-    // Follow redirects because HuggingFace uses them for LFS files
+    // [SETBACK & FIX]: HuggingFace stores large model binaries using Git LFS. 
+    // When requesting the file URL, HuggingFace returns an HTTP 302 redirect 
+    // to a presigned S3/CDN URL. By default, QNetworkAccessManager ignores redirects.
+    // We must explicitly set NoLessSafeRedirectPolicy to follow these and actually get the file.
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = manager->get(request);
@@ -106,7 +109,11 @@ void ModelDownloader::onReplyFinished(QNetworkReply* reply) {
 
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (reply->error() != QNetworkReply::NoError || statusCode >= 400) {
-        // Fallback for missing files (e.g. shared_vocabulary.txt instead of .json)
+        // [SETBACK & FIX]: CTranslate2 requires a shared vocabulary file, but its extension 
+        // varies between models on HuggingFace. Some use `shared_vocabulary.json`, while others
+        // use `shared_vocabulary.txt`. If the JSON download 404s, we must intercept the failure,
+        // rewrite the URL to target the TXT file instead, and prepend it to the download queue
+        // before aborting the entire process.
         QFileInfo fileInfo(file->fileName());
         if (fileInfo.fileName() == "shared_vocabulary.json") {
             qDebug() << "Failed to download shared_vocabulary.json, trying shared_vocabulary.txt...";

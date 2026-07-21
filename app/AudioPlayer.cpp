@@ -5,6 +5,10 @@
 #include <QCoreApplication>
 
 void AudioPlayer::tryWriteMore() {
+    // [ARCHITECTURE: Manual PCM Buffering]: QAudioSink operates asynchronously and relies on a finite internal buffer. 
+    // Since our TTS generates audio faster than real-time and in chunks, we cannot push it all at once or it drops bytes.
+    // Instead, we maintain a custom `QByteArray buffer` and periodically write as much as the sink has room for (`bytesFree`).
+    // The `bytesWritten` signal will trigger this method repeatedly until the buffer is flushed.
     if (!sink || !device || buffer.isEmpty()) return;
     int freeBytes = sink->bytesFree();
     if (freeBytes > 0) {
