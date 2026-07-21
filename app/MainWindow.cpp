@@ -10,7 +10,7 @@
 #include <QDir>
 #include <QApplication>
 
-MainWindow::MainWindow(QString mPath) : moonPath(mPath) {
+MainWindow::MainWindow() {
     supportedLanguages = {
         {"French", "michaelfeil/ct2fast-opus-mt-en-fr", "piper_fr_FR-upmc-medium", "fr"},
         {"German", "michaelfeil/ct2fast-opus-mt-en-de", "piper_de_DE-thorsten-medium", "de"},
@@ -41,18 +41,41 @@ MainWindow::MainWindow(QString mPath) : moonPath(mPath) {
     settingsMenu = new QMenu(settingsBtn);
     settingsMenu->setStyleSheet("QMenu { background-color: #2E2E2E; color: white; font-size: 14px; } QMenu::item:selected { background-color: #4CAF50; }");
     
+    QMenu* langMenu = settingsMenu->addMenu("Language");
     QActionGroup* langGroup = new QActionGroup(this);
     langGroup->setExclusive(true);
     for (const auto& lang : supportedLanguages) {
         QAction* act = new QAction(lang.name, this);
         act->setCheckable(true);
-        if (lang.name == "German") act->setChecked(true);
+        if (lang.name == "German") {
+            act->setChecked(true);
+            currentLang = lang;
+        }
         langGroup->addAction(act);
-        settingsMenu->addAction(act);
+        langMenu->addAction(act);
         connect(act, &QAction::triggered, [this, lang]() {
             switchLanguage(lang);
         });
     }
+
+    supportedMoonshineModels = {"tiny", "base", "small", "medium"};
+    QMenu* moonMenu = settingsMenu->addMenu("Moonshine Model");
+    QActionGroup* moonGroup = new QActionGroup(this);
+    moonGroup->setExclusive(true);
+    for (const auto& mName : supportedMoonshineModels) {
+        QAction* act = new QAction(mName, this);
+        act->setCheckable(true);
+        if (mName == "tiny") {
+            act->setChecked(true);
+            currentMoonshineModelName = "tiny";
+        }
+        moonGroup->addAction(act);
+        moonMenu->addAction(act);
+        connect(act, &QAction::triggered, [this, mName]() {
+            switchMoonshineModel(mName);
+        });
+    }
+    
     settingsBtn->setMenu(settingsMenu);
     headerLayout->addWidget(settingsBtn);
     
@@ -108,6 +131,7 @@ MainWindow::MainWindow(QString mPath) : moonPath(mPath) {
     setStyleSheet("QMainWindow { background-color: #121212; }");
 
     connect(toggleBtn, &QPushButton::toggled, this, &MainWindow::onToggle);
+    checkAndStartPipeline();
 }
 
 void MainWindow::appendTranscript(const QString& original, const QString& translated, const QString& execTime) {
@@ -153,6 +177,16 @@ void MainWindow::appendTranscript(const QString& original, const QString& transl
 }
 
 void MainWindow::switchLanguage(const LangConfig& lang) {
+    currentLang = lang;
+    checkAndStartPipeline();
+}
+
+void MainWindow::switchMoonshineModel(const QString& modelName) {
+    currentMoonshineModelName = modelName;
+    checkAndStartPipeline();
+}
+
+void MainWindow::checkAndStartPipeline() {
     toggleBtn->setEnabled(false);
     toggleBtn->setText("Loading...");
     toggleBtn->setStyleSheet("QPushButton { background-color: #555555; color: white; font-weight: bold; font-size: 16px; border-radius: 8px; padding: 10px 20px; }");
@@ -167,24 +201,43 @@ void MainWindow::switchLanguage(const LangConfig& lang) {
     englishLog->clear();
     germanLog->clear();
 
-    deLabel->setText(lang.name + " (Translation)");
+    deLabel->setText(currentLang.name + " (Translation)");
 
-    QString modelDir = "../models/opus-mt-en-" + lang.langCode + "-ct2";
-    if (!QDir(modelDir).exists()) {
-        toggleBtn->setText("Downloading " + lang.name + "...");
+    QString moonDir = "../models/moonshine-" + currentMoonshineModelName;
+    if (!QDir(moonDir).exists() || QDir(moonDir).isEmpty()) {
+        toggleBtn->setText("Downloading Moonshine " + currentMoonshineModelName + "...");
         ModelDownloader* downloader = new ModelDownloader(this);
-        connect(downloader, &ModelDownloader::downloadFinished, [this, downloader, lang, modelDir]() {
+        connect(downloader, &ModelDownloader::downloadFinished, [this, downloader]() {
             downloader->deleteLater();
-            startPipeline(lang, modelDir);
+            checkAndStartPipeline(); // Recurse to check the next model
         });
-        downloader->downloadModel(lang.opusRepo, modelDir);
-    } else {
-        startPipeline(lang, modelDir);
+        connect(downloader, &ModelDownloader::errorOccurred, [this, downloader](const QString& err) {
+            toggleBtn->setText("Error!");
+            qDebug() << "Moonshine download error:" << err;
+            downloader->deleteLater();
+        });
+        downloader->downloadMoonshineModel(currentMoonshineModelName, moonDir);
+        return; // Wait for it to finish
     }
-}
 
-void MainWindow::startPipeline(const LangConfig& lang, const QString& modelDir) {
-    worker = new LivePipelineWorker(moonPath, modelDir, lang.piperVoice, lang.langCode);
+    QString ct2Dir = "../models/opus-mt-en-" + currentLang.langCode + "-ct2";
+    if (!QDir(ct2Dir).exists() || QDir(ct2Dir).isEmpty()) {
+        toggleBtn->setText("Downloading " + currentLang.name + "...");
+        ModelDownloader* downloader = new ModelDownloader(this);
+        connect(downloader, &ModelDownloader::downloadFinished, [this, downloader]() {
+            downloader->deleteLater();
+            checkAndStartPipeline(); // Recurse to actually start
+        });
+        connect(downloader, &ModelDownloader::errorOccurred, [this, downloader](const QString& err) {
+            toggleBtn->setText("Error!");
+            qDebug() << "CT2 download error:" << err;
+            downloader->deleteLater();
+        });
+        downloader->downloadModel(currentLang.opusRepo, ct2Dir);
+        return;
+    }
+
+    worker = new LivePipelineWorker(moonDir, ct2Dir, currentLang.piperVoice, currentLang.langCode);
     connect(this, &MainWindow::recordingToggled, worker, &LivePipelineWorker::setRecording);
     connect(worker, &LivePipelineWorker::transcriptUpdated, this, &MainWindow::appendTranscript);
     connect(worker, &LivePipelineWorker::chunkReady, player, &AudioPlayer::onChunkReady, Qt::QueuedConnection);

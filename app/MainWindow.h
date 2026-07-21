@@ -23,13 +23,16 @@ public:
     QMenu* settingsMenu;
     QLabel* deLabel;
     
-    QString moonPath;
+    QString currentMoonshineModelName;
+    LangConfig currentLang;
+    
     LivePipelineWorker* worker = nullptr;
     AudioPlayer* player = nullptr;
     
     QList<LangConfig> supportedLanguages;
+    QList<QString> supportedMoonshineModels;
 
-    explicit MainWindow(QString mPath);
+    explicit MainWindow();
 
 signals:
     void recordingToggled(bool isRecording);
@@ -37,6 +40,7 @@ signals:
 public slots:
     void appendTranscript(const QString& original, const QString& translated, const QString& execTime);
     void switchLanguage(const LangConfig& lang);
-    void startPipeline(const LangConfig& lang, const QString& modelDir);
+    void switchMoonshineModel(const QString& modelName);
+    void checkAndStartPipeline();
     void onToggle(bool checked);
 };
