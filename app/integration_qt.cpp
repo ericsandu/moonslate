@@ -594,6 +594,9 @@ public slots:
             worker = nullptr;
         }
 
+        englishLog->clear();
+        germanLog->clear();
+
         deLabel->setText(lang.name + " (Translation)");
 
         QString modelDir = "../models/opus-mt-en-" + lang.langCode + "-ct2";

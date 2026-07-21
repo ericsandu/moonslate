@@ -14,8 +14,8 @@ cmake --build . -j$(nproc)
 cd ../../../
 
 echo "[3] Building Moonslate Integrations (CTranslate2, SentencePiece)..."
-mkdir -p ctranslate2/build
-cd ctranslate2/build
+mkdir -p app/build
+cd app/build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
 # Apply GCC 16 <cstdint> patch to SentencePiece before building
@@ -27,4 +27,4 @@ cd ../../
 
 echo "=== Build Complete! ==="
 echo "Test the integration demo:"
-echo "./ctranslate2/build/integration_demo ./moonshine/test-assets/two_cities.wav ./moonshine/test-assets/tiny-en ./models/opus-mt-en-de-ct2"
+echo "./app/build/integration_demo ./moonshine/test-assets/two_cities.wav ./moonshine/test-assets/tiny-en ./app/models/opus-mt-en-de-ct2"
