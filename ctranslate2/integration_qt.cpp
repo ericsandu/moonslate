@@ -18,6 +18,7 @@
 #include <QAudioSink>
 #include <QMediaDevices>
 #include <QAudioFormat>
+#include <QTime>
 #include <QAudioSource>
 #include <QIODevice>
 #include <QThread>
@@ -249,7 +250,7 @@ public slots:
 
 signals:
     void chunkReady(const QByteArray& pcmData, int sampleRate);
-    void transcriptUpdated(const QString& original, const QString& translated);
+    void transcriptUpdated(const QString& original, const QString& translated, const QString& execTime);
 
 protected:
     void run() override {
@@ -294,6 +295,8 @@ protected:
             float vad = current_max_vad.exchange(0.0f);
             if (vad < 0.6f || ev.line.text.empty()) return; // Drop silence
             
+            auto t1 = std::chrono::steady_clock::now();
+            
             std::vector<std::string> tokens;
             std::string output_text;
             
@@ -309,9 +312,12 @@ protected:
             
             std::cout << "     Translated: " << output_text << std::endl;
             
-            emit transcriptUpdated(QString::fromStdString(ev.line.text), QString::fromStdString(output_text));
-            
             moonshine::TtsSynthesisResult piper_result = tts_piper.synthesize(output_text);
+            
+            auto t2 = std::chrono::steady_clock::now();
+            int exec_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+            
+            emit transcriptUpdated(QString::fromStdString(ev.line.text), QString::fromStdString(output_text), QString("%1ms").arg(exec_ms));
             
             int duration_ms = (piper_result.samples.size() * 1000) / piper_result.sampleRateHz;
             auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()).time_since_epoch().count();
@@ -479,9 +485,43 @@ signals:
     void recordingToggled(bool isRecording);
 
 public slots:
-    void appendTranscript(const QString& original, const QString& translated) {
-        englishLog->append(original);
-        germanLog->append(translated);
+    void appendTranscript(const QString& original, const QString& translated, const QString& execTime) {
+        QString timeStr = QTime::currentTime().toString("hh:mm:ss");
+        
+        QString enHtml = QString(
+            "<table width='100%' cellpadding='0' cellspacing='0'>"
+            "<tr>"
+            "<td align='left' valign='middle' style='padding-bottom: 5px;'>%2</td>"
+            "<td align='right' valign='middle' style='color: #666666; font-size: 11px; padding-left: 15px; padding-bottom: 5px;'>%1</td>"
+            "</tr>"
+            "<tr>"
+            "<td colspan='2'>"
+            "<table width='100%' cellpadding='0' cellspacing='0'><tr>"
+            "<td width='2%'></td><td width='96%' style='border-top: 1px solid #2A2A2A; font-size: 1px;'></td><td width='2%'></td>"
+            "</tr></table>"
+            "</td>"
+            "</tr>"
+            "</table>"
+        ).arg(timeStr, original.toHtmlEscaped());
+        
+        QString deHtml = QString(
+            "<table width='100%' cellpadding='0' cellspacing='0'>"
+            "<tr>"
+            "<td align='left' valign='middle' style='padding-bottom: 5px;'>%2</td>"
+            "<td align='right' valign='middle' style='color: #4CAF50; font-size: 11px; padding-left: 15px; padding-bottom: 5px;'>%1</td>"
+            "</tr>"
+            "<tr>"
+            "<td colspan='2'>"
+            "<table width='100%' cellpadding='0' cellspacing='0'><tr>"
+            "<td width='2%'></td><td width='96%' style='border-top: 1px solid #233A23; font-size: 1px;'></td><td width='2%'></td>"
+            "</tr></table>"
+            "</td>"
+            "</tr>"
+            "</table>"
+        ).arg(execTime, translated.toHtmlEscaped());
+
+        englishLog->append(enHtml);
+        germanLog->append(deHtml);
         
         englishLog->verticalScrollBar()->setValue(englishLog->verticalScrollBar()->maximum());
         germanLog->verticalScrollBar()->setValue(germanLog->verticalScrollBar()->maximum());
