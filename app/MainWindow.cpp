@@ -9,6 +9,7 @@
 #include <QScrollBar>
 #include <QDir>
 #include <QApplication>
+#include <QSettings>
 
 MainWindow::MainWindow() {
     supportedLanguages = {
@@ -41,13 +42,18 @@ MainWindow::MainWindow() {
     settingsMenu = new QMenu(settingsBtn);
     settingsMenu->setStyleSheet("QMenu { background-color: #2E2E2E; color: white; font-size: 14px; } QMenu::item:selected { background-color: #4CAF50; }");
     
+    QSettings settings("Moonslate", "LiveTranslator");
+    QString savedLang = settings.value("currentLanguage", "German").toString();
+    QString savedMoon = settings.value("currentMoonshineModel", "tiny").toString();
+
+    currentLang = supportedLanguages[1]; // default to German
     QMenu* langMenu = settingsMenu->addMenu("Language");
     QActionGroup* langGroup = new QActionGroup(this);
     langGroup->setExclusive(true);
     for (const auto& lang : supportedLanguages) {
         QAction* act = new QAction(lang.name, this);
         act->setCheckable(true);
-        if (lang.name == "German") {
+        if (lang.name == savedLang) {
             act->setChecked(true);
             currentLang = lang;
         }
@@ -59,15 +65,16 @@ MainWindow::MainWindow() {
     }
 
     supportedMoonshineModels = {"tiny", "small", "medium"};
+    currentMoonshineModelName = "tiny"; // default to tiny
     QMenu* moonMenu = settingsMenu->addMenu("Moonshine Model");
     QActionGroup* moonGroup = new QActionGroup(this);
     moonGroup->setExclusive(true);
     for (const auto& mName : supportedMoonshineModels) {
         QAction* act = new QAction(mName, this);
         act->setCheckable(true);
-        if (mName == "tiny") {
+        if (mName == savedMoon) {
             act->setChecked(true);
-            currentMoonshineModelName = "tiny";
+            currentMoonshineModelName = mName;
         }
         moonGroup->addAction(act);
         moonMenu->addAction(act);
@@ -178,11 +185,15 @@ void MainWindow::appendTranscript(const QString& original, const QString& transl
 
 void MainWindow::switchLanguage(const LangConfig& lang) {
     currentLang = lang;
+    QSettings settings("Moonslate", "LiveTranslator");
+    settings.setValue("currentLanguage", lang.name);
     checkAndStartPipeline();
 }
 
 void MainWindow::switchMoonshineModel(const QString& modelName) {
     currentMoonshineModelName = modelName;
+    QSettings settings("Moonslate", "LiveTranslator");
+    settings.setValue("currentMoonshineModel", modelName);
     checkAndStartPipeline();
 }
 
