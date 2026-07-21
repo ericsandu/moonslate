@@ -63,6 +63,8 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Multimedia Network)
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../noise-suppression-for-voice/external/rnnoise rnnoise_build)
+
 add_executable(integration_qt
     integration_qt.cpp
     ModelDownloader.cpp
@@ -72,10 +74,12 @@ target_include_directories(integration_qt PRIVATE
     ${sentencepiece_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/moonshine-utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/../noise-suppression-for-voice/external/rnnoise/include
 )
 target_link_libraries(integration_qt PRIVATE 
     ctranslate2 
     sentencepiece-static 
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/build/libmoonshine.so
     Qt6::Core Qt6::Multimedia Qt6::Network
+    RnNoise
 )

@@ -356,7 +356,6 @@ protected:
             std::vector<float> out_16k_chunk;
             for (size_t i = 0; i < count; ++i) {
                 audio_buffer_16k.push_back(static_cast<float>(ptr[i]));
-                out_16k_chunk.push_back(ptr[i] / 32768.0f);
             }
 
             while (audio_buffer_16k.size() >= 160) {
@@ -364,6 +363,7 @@ protected:
                 float frame_out_48k[480];
                 for (int i = 0; i < 160; ++i) {
                     float val = audio_buffer_16k[i];
+                    // Point upsampling
                     frame_in_48k[i*3]     = val;
                     frame_in_48k[i*3 + 1] = val;
                     frame_in_48k[i*3 + 2] = val;
@@ -371,6 +371,12 @@ protected:
                 audio_buffer_16k.erase(audio_buffer_16k.begin(), audio_buffer_16k.begin() + 160);
                 
                 float vad = rnnoise_process_frame(rnnoise_st, frame_out_48k, frame_in_48k);
+                
+                for (int i = 0; i < 160; ++i) {
+                    // Moving average downsampling to prevent high-frequency aliasing artifacts
+                    float val = (frame_out_48k[i*3] + frame_out_48k[i*3+1] + frame_out_48k[i*3+2]) / 3.0f;
+                    out_16k_chunk.push_back(val / 32768.0f);
+                }
                 
                 float current = current_max_vad.load();
                 while (vad > current && !current_max_vad.compare_exchange_weak(current, vad)) {}
