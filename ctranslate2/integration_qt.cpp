@@ -245,9 +245,10 @@ public:
     std::atomic<long long> ignore_audio_until_ms{0};
     std::atomic<bool> is_recording{true};
     QString piperVoice;
+    QString langCode;
 
-    LivePipelineWorker(QString m, QString c, QString pv) 
-        : moonPath(m), ct2Path(c), piperVoice(pv) {}
+    LivePipelineWorker(QString m, QString c, QString pv, QString lc) 
+        : moonPath(m), ct2Path(c), piperVoice(pv), langCode(lc) {}
 
 public slots:
     void setRecording(bool rec) {
@@ -279,7 +280,7 @@ protected:
             {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
             {"voice", voiceStr.c_str()},
         };
-        moonshine::TextToSpeech tts_piper("de", piper_options);
+        moonshine::TextToSpeech tts_piper(langCode.toStdString().c_str(), piper_options);
 
         QAudioFormat format;
         format.setSampleRate(16000);
@@ -610,7 +611,7 @@ public slots:
     }
 
     void startPipeline(const LangConfig& lang, const QString& modelDir) {
-        worker = new LivePipelineWorker(moonPath, modelDir, lang.piperVoice);
+        worker = new LivePipelineWorker(moonPath, modelDir, lang.piperVoice, lang.langCode);
         connect(this, &MainWindow::recordingToggled, worker, &LivePipelineWorker::setRecording);
         connect(worker, &LivePipelineWorker::transcriptUpdated, this, &MainWindow::appendTranscript);
         connect(worker, &LivePipelineWorker::chunkReady, player, &AudioPlayer::onChunkReady, Qt::QueuedConnection);
