@@ -14,7 +14,7 @@
 MainWindow::MainWindow() {
     supportedLanguages = {
         {"French", "michaelfeil/ct2fast-opus-mt-en-fr", "piper_fr_FR-upmc-medium", "fr"},
-        {"German", "michaelfeil/ct2fast-opus-mt-en-de", "piper_de_DE-thorsten-medium", "de"},
+        {"German", "michaelfeil/ct2fast-opus-mt-en-de", "piper_de_DE-thorsten-high", "de"},
         {"Spanish", "michaelfeil/ct2fast-opus-mt-en-es", "piper_es_ES-davefx-medium", "es"}
     };
 
