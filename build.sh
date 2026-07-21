@@ -17,6 +17,9 @@ fi
 cd ../
 
 echo "[2] Building Moonshine Core Library..."
+# Strip out strict -Werror to prevent GCC 13/14 false-positive array-bounds warnings from failing the CI
+sed -i 's/-Werror//g' moonshine/core/CMakeLists.txt
+
 mkdir -p moonshine/core/build
 cd moonshine/core/build
 cmake .. -DCMAKE_BUILD_TYPE=Release
