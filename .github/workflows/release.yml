@@ -1,0 +1,44 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake qt6-base-dev qt6-multimedia-dev libpulse-dev libasound2-dev curl
+
+      - name: Build Application
+        run: |
+          chmod +x ./build.sh
+          ./build.sh
+
+      - name: Package Release
+        run: |
+          mkdir -p package/moonslate
+          cp app/build/moonslate_app package/moonslate/
+          cp README.md package/moonslate/
+          cd package
+          tar -czvf moonslate-linux-x86_64.tar.gz moonslate
+
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: package/moonslate-linux-x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
