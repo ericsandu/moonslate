@@ -4,7 +4,7 @@ set -e
 echo "=== Moonslate Build Automation ==="
 
 echo "[1] Initializing and updating Git submodules..."
-git submodule update --init --recursive
+git submodule update --init --recursive --depth 1
 
 echo "Applying patches to moonshine submodule..."
 cd moonshine
