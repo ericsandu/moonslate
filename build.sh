@@ -17,8 +17,8 @@ fi
 cd ../
 
 echo "[2] Building Moonshine Core Library..."
-# Strip out strict -Werror to prevent GCC 13/14 false-positive array-bounds warnings from failing the CI
-sed -i 's/-Werror//g' moonshine/core/CMakeLists.txt
+# Upstream now downgrades GCC's bogus -Wrestrict/-Warray-bounds diagnostics itself
+# (see core/CMakeLists.txt), so -Werror can stay on for real warnings.
 
 mkdir -p moonshine/core/build
 cd moonshine/core/build

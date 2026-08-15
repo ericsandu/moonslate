@@ -1,19 +1,21 @@
-From 2475d59052eb578dc686964f851e36b1588e058b Mon Sep 17 00:00:00 2001
+From 6da0979e7eb8343026985f95a8b1e070dcfff608 Mon Sep 17 00:00:00 2001
 From: Eric Sandu <eric_andrei.sandu@stud.acs.upb.ro>
-Date: Tue, 21 Jul 2026 22:05:12 +0300
+Date: Sun, 16 Aug 2026 00:26:37 +0300
 Subject: [PATCH 2/2] fix: Audio reversing cycle and static Annote
  instantiation
 
+The cached CppAnnote engine now also rebuilds when the caller switches
+diarization_model_dir.
 ---
  core/cpp-annote/src/cpp-annote.cpp |  8 +++++++-
- core/moonshine-c-api.cpp           | 11 +++++++++--
- 2 files changed, 16 insertions(+), 3 deletions(-)
+ core/moonshine-c-api.cpp           | 18 ++++++++++++++----
+ 2 files changed, 21 insertions(+), 5 deletions(-)
 
 diff --git a/core/cpp-annote/src/cpp-annote.cpp b/core/cpp-annote/src/cpp-annote.cpp
-index 20d57aa..cf12162 100644
+index 3b05afc..21bb8cc 100644
 --- a/core/cpp-annote/src/cpp-annote.cpp
 +++ b/core/cpp-annote/src/cpp-annote.cpp
-@@ -984,7 +984,13 @@ struct CppAnnote::Impl {
+@@ -980,7 +980,13 @@ struct CppAnnote::Impl {
      std::vector<float> chunk(chunk_size, 0.0f);
      if (audio_length > 0) {
          for(int i = 0; i < chunk_size; i++) {
@@ -27,25 +29,39 @@ index 20d57aa..cf12162 100644
 +            }
          }
      }
-     
+ 
 diff --git a/core/moonshine-c-api.cpp b/core/moonshine-c-api.cpp
-index cb2e9d6..2a19ec0 100644
+index 65742c5..2bd3414 100644
 --- a/core/moonshine-c-api.cpp
 +++ b/core/moonshine-c-api.cpp
-@@ -717,8 +717,15 @@ void moonshine_free_intent_embedding(float *embedding) { std::free(embedding); }
- int32_t moonshine_extract_speaker_embedding(const float *audio_data, uint64_t audio_length, int32_t sample_rate, float **out_embedding, uint64_t *out_embedding_size) {
-     if (!audio_data || !out_embedding || !out_embedding_size) return MOONSHINE_ERROR_INVALID_ARGUMENT;
+@@ -43,6 +43,7 @@ SOFTWARE.
+ #include <cstring>  // For strerror
+ #include <filesystem>
+ #include <map>
++#include <memory>
+ #include <mutex>
+ #include <numeric>
+ #include <optional>
+@@ -794,10 +795,19 @@ void moonshine_free_embedding(float *embedding) { std::free(embedding); }
+ int32_t moonshine_extract_speaker_embedding(const float *audio_data, uint64_t audio_length, int32_t sample_rate, const char *diarization_model_dir, float **out_embedding, uint64_t *out_embedding_size) {
+     if (!audio_data || !out_embedding || !out_embedding_size || !diarization_model_dir) return MOONSHINE_ERROR_INVALID_ARGUMENT;
      try {
--        cppannote::CppAnnote engine;
+-        std::filesystem::path dir(diarization_model_dir);
+-        cppannote::CppAnnote engine((dir / "segmentation.ort").string(),
+-                                    (dir / "embedding.ort").string());
 -        std::vector<float> embed = engine.extract_embedding(audio_data, audio_length, sample_rate);
 +        static std::mutex g_annote_mutex;
 +        static std::unique_ptr<cppannote::CppAnnote> g_annote;
-+        
++        static std::string g_annote_model_dir;
++
 +        std::lock_guard<std::mutex> lock(g_annote_mutex);
-+        if (!g_annote) {
-+            g_annote = std::make_unique<cppannote::CppAnnote>();
++        if (!g_annote || g_annote_model_dir != diarization_model_dir) {
++            std::filesystem::path dir(diarization_model_dir);
++            g_annote = std::make_unique<cppannote::CppAnnote>((dir / "segmentation.ort").string(),
++                                                              (dir / "embedding.ort").string());
++            g_annote_model_dir = diarization_model_dir;
 +        }
-+        
++
 +        std::vector<float> embed = g_annote->extract_embedding(audio_data, audio_length, sample_rate);
          *out_embedding_size = embed.size();
          *out_embedding = static_cast<float*>(std::malloc(embed.size() * sizeof(float)));

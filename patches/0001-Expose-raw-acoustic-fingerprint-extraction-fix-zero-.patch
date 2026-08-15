@@ -1,21 +1,24 @@
-From 05a0448b61f76fc6f38d5432fa53c46802841276 Mon Sep 17 00:00:00 2001
+From 0f94972e005146f0717c36a85a0a477ae858ab27 Mon Sep 17 00:00:00 2001
 From: Eric Sandu <eric_andrei.sandu@stud.acs.upb.ro>
-Date: Tue, 21 Jul 2026 18:43:50 +0300
+Date: Sun, 16 Aug 2026 00:26:09 +0300
 Subject: [PATCH 1/2] Expose raw acoustic fingerprint extraction & fix
  zero-padding InstanceNorm corruption
 
+Rebased onto upstream main: the diarization models are no longer compiled
+into the library, so moonshine_extract_speaker_embedding now takes a
+diarization_model_dir holding segmentation.ort and embedding.ort.
 ---
  core/cpp-annote/src/cpp-annote.cpp | 49 ++++++++++++++++++++++++++++++
  core/cpp-annote/src/cpp-annote.h   |  4 +++
- core/moonshine-c-api.cpp           | 17 +++++++++++
- core/moonshine-c-api.h             | 10 ++++++
- 4 files changed, 80 insertions(+)
+ core/moonshine-c-api.cpp           | 19 ++++++++++++
+ core/moonshine-c-api.h             | 14 +++++++++
+ 4 files changed, 86 insertions(+)
 
 diff --git a/core/cpp-annote/src/cpp-annote.cpp b/core/cpp-annote/src/cpp-annote.cpp
-index b7a8805..20d57aa 100644
+index 678c070..3b05afc 100644
 --- a/core/cpp-annote/src/cpp-annote.cpp
 +++ b/core/cpp-annote/src/cpp-annote.cpp
-@@ -969,6 +969,49 @@ struct CppAnnote::Impl {
+@@ -965,6 +965,49 @@ struct CppAnnote::Impl {
      }
      return r;
    }
@@ -29,7 +32,7 @@ index b7a8805..20d57aa 100644
 +      audio_data = resampled.data();
 +      audio_length = resampled.size();
 +    }
-+    
++
 +    int chunk_size = engine.segmentation_chunk_num_samples();
 +    std::vector<float> chunk(chunk_size, 0.0f);
 +    if (audio_length > 0) {
@@ -37,14 +40,14 @@ index b7a8805..20d57aa 100644
 +            chunk[i] = audio_data[i % audio_length];
 +        }
 +    }
-+    
++
 +    std::vector<float> seg = engine.run_segmentation_ort_single(chunk.data());
 +    std::vector<float> emb_all = engine.run_embedding_ort_single(chunk.data(), seg.data());
-+    
++
 +    int K = engine.seg_classes();
 +    int F = engine.seg_frames_per_chunk();
 +    int dim = engine.embedding_dimension();
-+    
++
 +    int best_sp = 0;
 +    float max_activity = -1.0f;
 +    for (int sp = 0; sp < K; ++sp) {
@@ -57,15 +60,15 @@ index b7a8805..20d57aa 100644
 +            best_sp = sp;
 +        }
 +    }
-+    
++
 +    std::vector<float> single_emb(dim);
 +    std::copy(emb_all.begin() + best_sp * dim, emb_all.begin() + (best_sp + 1) * dim, single_emb.begin());
 +    return single_emb;
 +  }
  };
  
- CppAnnote::CppAnnote() : impl_(std::make_unique<Impl>()) {}
-@@ -1035,4 +1078,10 @@ DiarizationResults CppAnnote::diarize_stream(int32_t stream_id) {
+ CppAnnote::CppAnnote(const ModelSources& models)
+@@ -1032,4 +1075,10 @@ DiarizationResults CppAnnote::diarize_stream(int32_t stream_id) {
    return Impl::to_results(snap);
  }
  
@@ -77,10 +80,10 @@ index b7a8805..20d57aa 100644
 +
  }  // namespace cppannote
 diff --git a/core/cpp-annote/src/cpp-annote.h b/core/cpp-annote/src/cpp-annote.h
-index fd72bb9..a65e1c8 100644
+index be26633..6cc6a06 100644
 --- a/core/cpp-annote/src/cpp-annote.h
 +++ b/core/cpp-annote/src/cpp-annote.h
-@@ -51,6 +51,10 @@ class CppAnnote {
+@@ -77,6 +77,10 @@ class CppAnnote {
    DiarizationResults diarize(const float *audio_data, uint64_t audio_length,
                               int32_t sample_rate = 16000);
  
@@ -92,25 +95,27 @@ index fd72bb9..a65e1c8 100644
    /// ``cluster_cadence`` controls how often VBx re-clustering runs (seconds).
    /// ``analyze_cadence`` controls the step between segmentation+embedding model
 diff --git a/core/moonshine-c-api.cpp b/core/moonshine-c-api.cpp
-index 1775594..cb2e9d6 100644
+index 9461aa5..65742c5 100644
 --- a/core/moonshine-c-api.cpp
 +++ b/core/moonshine-c-api.cpp
-@@ -64,6 +64,7 @@ SOFTWARE.
- #include "ort-utils.h"
+@@ -68,6 +68,7 @@ SOFTWARE.
  #include "string-utils.h"
+ #include "text-embedder.h"
  #include "transcriber.h"
 +#include "cpp-annote/src/cpp-annote.h"
  
  // Defined as a macro to ensure we get meaningful line numbers in the error
  // message.
-@@ -713,6 +714,22 @@ int32_t moonshine_calculate_intent_embedding(int32_t intent_recognizer_handle,
+@@ -790,6 +791,24 @@ int32_t moonshine_calculate_embedding(int32_t embedding_model_handle,
  
- void moonshine_free_intent_embedding(float *embedding) { std::free(embedding); }
+ void moonshine_free_embedding(float *embedding) { std::free(embedding); }
  
-+int32_t moonshine_extract_speaker_embedding(const float *audio_data, uint64_t audio_length, int32_t sample_rate, float **out_embedding, uint64_t *out_embedding_size) {
-+    if (!audio_data || !out_embedding || !out_embedding_size) return MOONSHINE_ERROR_INVALID_ARGUMENT;
++int32_t moonshine_extract_speaker_embedding(const float *audio_data, uint64_t audio_length, int32_t sample_rate, const char *diarization_model_dir, float **out_embedding, uint64_t *out_embedding_size) {
++    if (!audio_data || !out_embedding || !out_embedding_size || !diarization_model_dir) return MOONSHINE_ERROR_INVALID_ARGUMENT;
 +    try {
-+        cppannote::CppAnnote engine;
++        std::filesystem::path dir(diarization_model_dir);
++        cppannote::CppAnnote engine((dir / "segmentation.ort").string(),
++                                    (dir / "embedding.ort").string());
 +        std::vector<float> embed = engine.extract_embedding(audio_data, audio_length, sample_rate);
 +        *out_embedding_size = embed.size();
 +        *out_embedding = static_cast<float*>(std::malloc(embed.size() * sizeof(float)));
@@ -123,23 +128,27 @@ index 1775594..cb2e9d6 100644
 +
 +void moonshine_free_speaker_embedding(float *embedding) { std::free(embedding); }
 +
- int32_t moonshine_calculate_embedding_distance(int32_t intent_recognizer_handle,
+ int32_t moonshine_calculate_embedding_distance(int32_t embedding_model_handle,
                                                 const float *embedding_a,
                                                 const float *embedding_b,
 diff --git a/core/moonshine-c-api.h b/core/moonshine-c-api.h
-index f8c53a2..2cddfa5 100644
+index e5556fc..ac7f01f 100644
 --- a/core/moonshine-c-api.h
 +++ b/core/moonshine-c-api.h
-@@ -714,6 +714,16 @@ MOONSHINE_EXPORT int32_t moonshine_calculate_intent_embedding(
-  */
- MOONSHINE_EXPORT void moonshine_free_intent_embedding(float *embedding);
+@@ -812,6 +812,20 @@ MOONSHINE_EXPORT int32_t moonshine_calculate_embedding(
+ /* Frees an embedding returned by moonshine_calculate_embedding. */
+ MOONSHINE_EXPORT void moonshine_free_embedding(float *embedding);
  
 +/* Extracts the underlying speaker embedding vector (d-vector) for the given audio.
-+   On success, ``*out_embedding`` is set to a heap-allocated array of floats.
-+   Release the array with ``moonshine_free_speaker_embedding``. */
++   ``diarization_model_dir`` must hold the downloaded diarization models
++   (``segmentation.ort`` and ``embedding.ort``, see
++   ``moonshine_get_diarization_dependencies``). On success, ``*out_embedding``
++   is set to a heap-allocated array of floats. Release the array with
++   ``moonshine_free_speaker_embedding``. */
 +MOONSHINE_EXPORT int32_t moonshine_extract_speaker_embedding(
 +    const float *audio_data, uint64_t audio_length, int32_t sample_rate,
-+    float **out_embedding, uint64_t *out_embedding_size);
++    const char *diarization_model_dir, float **out_embedding,
++    uint64_t *out_embedding_size);
 +
 +/* Frees a speaker embedding returned by moonshine_extract_speaker_embedding. */
 +MOONSHINE_EXPORT void moonshine_free_speaker_embedding(float *embedding);
