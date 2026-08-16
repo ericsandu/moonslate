@@ -24,14 +24,27 @@
 #include <QIODevice>
 #include <rnnoise.h>
 
-LivePipelineWorker::LivePipelineWorker(QString m, QString c, QString pv, QString lc, QString mm, QString kt)
-    : moonPath(m), ct2Path(c), piperVoice(pv), langCode(lc), moonModelName(mm), keyterms(kt) {}
+LivePipelineWorker::LivePipelineWorker(QString m, QString c, QString pv, QString lc, QString mm, QString kt, QString gr)
+    : moonPath(m), ct2Path(c), piperVoice(pv), langCode(lc), moonModelName(mm), keyterms(kt), g2pRoot(gr) {}
 
 void LivePipelineWorker::setRecording(bool rec) {
     is_recording.store(rec);
 }
 
-    void LivePipelineWorker::run() {
+void LivePipelineWorker::run() {
+    // [SETBACK & FIX]: Model loading throws (MoonshineException, CTranslate2
+    // runtime_error) when assets are missing or incompatible; an exception
+    // escaping a QThread::run() aborts the whole process (SIGABRT). Catch it
+    // and surface the message on the UI instead.
+    try {
+        runPipeline();
+    } catch (const std::exception& e) {
+        std::cerr << "Pipeline failed: " << e.what() << std::endl;
+        emit pipelineError(QString::fromUtf8(e.what()));
+    }
+}
+
+void LivePipelineWorker::runPipeline() {
         std::cout << "[1] Initializing Live Voice-To-Text Transcription via Moonshine..." << std::endl;
         // [SETBACK & FIX]: The STT model size selected in the GUI decides which streaming
         // architecture is loaded; hardcoding TINY_STREAMING made the small/medium downloads
@@ -69,7 +82,7 @@ void LivePipelineWorker::setRecording(bool rec) {
         // [API CHANGE]: moonshine v0.1.2 owns option strings now (moonshine::Options)
         // instead of borrowing const char* pointers in moonshine_option_t.
         moonshine::Options tts_options = {
-            {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
+            {"g2p_root", g2pRoot.toStdString()},
             {"voice", voiceStr},
         };
         moonshine::TextToSpeech tts_piper(langCode.toStdString(), tts_options);

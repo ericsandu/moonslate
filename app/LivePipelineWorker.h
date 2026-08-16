@@ -17,9 +17,10 @@ public:
     QString langCode;
     QString moonModelName;
     QString keyterms;
+    QString g2pRoot;
 
     LivePipelineWorker(QString m, QString c, QString pv, QString lc,
-                       QString mm, QString kt);
+                       QString mm, QString kt, QString gr);
 
 public slots:
     void setRecording(bool rec);
@@ -28,7 +29,11 @@ signals:
     void chunkReady(const QByteArray& pcmData, int sampleRate);
     void transcriptUpdated(const QString& original, const QString& translated, const QString& execTime);
     void pipelineReady();
+    void pipelineError(const QString& message);
 
 protected:
     void run() override;
+
+private:
+    void runPipeline();
 };

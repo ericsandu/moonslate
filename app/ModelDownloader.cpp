@@ -31,6 +31,14 @@ void ModelDownloader::downloadModel(const QString& repoId, const QString& destDi
     startNextDownload();
 }
 
+void ModelDownloader::downloadFileList(const QList<QPair<QString, QString>>& urlDestPairs) {
+    for (const auto& pair : urlDestPairs) {
+        QDir().mkpath(QFileInfo(pair.second).absolutePath());
+        downloadQueue.append(pair);
+    }
+    startNextDownload();
+}
+
 void ModelDownloader::downloadMoonshineModel(const QString& modelName, const QString& destDir) {
     QDir dir;
     if (!dir.exists(destDir)) {

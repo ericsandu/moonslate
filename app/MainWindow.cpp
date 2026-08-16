@@ -11,6 +11,16 @@
 #include <QDir>
 #include <QApplication>
 #include <QSettings>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+
+// [SETBACK & FIX]: Qt defines 'emit' globally, which breaks Moonshine's
+// Stream::emit(). Include the C++ wrapper with the macro undefined, then
+// restore Qt's (empty) definition afterwards.
+#undef emit
+#include "moonshine-cpp.h"
+#define emit
 
 MainWindow::MainWindow() {
     supportedLanguages = {
@@ -309,14 +319,72 @@ void MainWindow::checkAndStartPipeline() {
         return;
     }
 
+    // [STATE 3.5] Validate TTS voice + G2P assets
+    // Since moonshine v0.1.2 the Piper voices and lexicons are CDN downloads
+    // instead of files bundled in the repository. The library exposes the exact
+    // per-language manifest (G2P lexicon + the selected voice's model, weights
+    // and config), so fetch anything missing under the g2p root it reads from.
+    const QString g2pRoot = QDir::cleanPath(
+        QCoreApplication::applicationDirPath() + "/../../moonshine/core/moonshine-tts/data");
+    try {
+        const std::string depsJson = moonshine::TextToSpeech::getDependencies(
+            currentLang.langCode.toStdString(),
+            {{"g2p_root", g2pRoot.toStdString()},
+             {"voice", currentLang.piperVoice.toStdString()}});
+        QList<QPair<QString, QString>> missing;
+        const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(depsJson));
+        for (const QJsonValue& groupVal : doc.object().value("groups").toArray()) {
+            for (const QJsonValue& fileVal : groupVal.toObject().value("files").toArray()) {
+                const QJsonObject file = fileVal.toObject();
+                const QString name = file.value("name").toString();
+                const QString url = file.value("url").toString();
+                if (!QFile::exists(g2pRoot + "/" + name)) {
+                    missing.append(qMakePair(url, g2pRoot + "/" + name));
+                }
+            }
+        }
+        if (!missing.isEmpty()) {
+            toggleBtn->setText("Downloading TTS voice...");
+            ModelDownloader* downloader = new ModelDownloader(this);
+            connect(downloader, &ModelDownloader::downloadProgress, this, [this](const QString& file, qint64 received, qint64 total) {
+                if (total > 0) {
+                    toggleBtn->setText(QString("Downloading %1... %2%").arg(file).arg(received * 100 / total));
+                } else {
+                    toggleBtn->setText("Downloading " + file + "...");
+                }
+            });
+            connect(downloader, &ModelDownloader::downloadFinished, [this, downloader]() {
+                downloader->deleteLater();
+                checkAndStartPipeline(); // Recurse to actually start
+            });
+            connect(downloader, &ModelDownloader::errorOccurred, [this, downloader](const QString& err) {
+                toggleBtn->setText("Error!");
+                qDebug() << "TTS asset download error:" << err;
+                downloader->deleteLater();
+            });
+            downloader->downloadFileList(missing);
+            return;
+        }
+    } catch (const std::exception& e) {
+        toggleBtn->setText("Error!");
+        qDebug() << "TTS dependency manifest error:" << e.what();
+        return;
+    }
+
     // [STATE 4] Start Background Pipeline Execution
     // Now that all dependencies are present locally, start the worker thread.
-    // The LivePipelineWorker handles audio capturing, streaming transcription, 
+    // The LivePipelineWorker handles audio capturing, streaming transcription,
     // and live translation, emitting results asynchronously.
-    worker = new LivePipelineWorker(moonDir, ct2Dir, currentLang.piperVoice, currentLang.langCode, currentMoonshineModelName, currentKeyterms);
+    worker = new LivePipelineWorker(moonDir, ct2Dir, currentLang.piperVoice, currentLang.langCode, currentMoonshineModelName, currentKeyterms, g2pRoot);
     connect(this, &MainWindow::recordingToggled, worker, &LivePipelineWorker::setRecording);
     connect(worker, &LivePipelineWorker::transcriptUpdated, this, &MainWindow::appendTranscript);
     connect(worker, &LivePipelineWorker::chunkReady, player, &AudioPlayer::onChunkReady, Qt::QueuedConnection);
+    connect(worker, &LivePipelineWorker::pipelineError, this, [this](const QString& message) {
+        toggleBtn->setEnabled(false);
+        toggleBtn->setText("Error!");
+        toggleBtn->setToolTip(message);
+        qDebug() << "Pipeline error:" << message;
+    });
     connect(worker, &LivePipelineWorker::pipelineReady, this, [this]() {
         toggleBtn->setEnabled(true);
         if (toggleBtn->isChecked()) {

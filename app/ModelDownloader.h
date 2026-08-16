@@ -18,6 +18,8 @@ public:
     // destDir = "../models/opus-mt-en-de-ct2"
     Q_INVOKABLE void downloadModel(const QString& repoId, const QString& destDir);
     Q_INVOKABLE void downloadMoonshineModel(const QString& modelName, const QString& destDir);
+    // Arbitrary (url, destination path) pairs; parent directories are created as needed.
+    Q_INVOKABLE void downloadFileList(const QList<QPair<QString, QString>>& urlDestPairs);
 
 signals:
     void downloadProgress(const QString& filename, qint64 bytesReceived, qint64 bytesTotal);
