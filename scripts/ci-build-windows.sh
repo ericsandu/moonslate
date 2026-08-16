@@ -31,6 +31,11 @@ cmake -G Ninja -S app -B app/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VER
     -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" ${EXTRA_CMAKE_FLAGS:-}
 perl -pi -e 's/#include <vector>/#include <vector>\n#include <cstdint>/' \
     app/build/_deps/sentencepiece-src/src/sentencepiece_processor.h || true
+# CTranslate2 pins the static MSVC runtime when built as a static library, but
+# Qt's MSVC binaries (and our app) require the dynamic /MD runtime; Ninja
+# re-configures automatically because the touched CMakeLists is a dependency.
+perl -pi -e 's/"MultiThreaded\$</"MultiThreadedDLL\$</' \
+    app/build/_deps/ctranslate2-src/CMakeLists.txt || true
 cmake --build app/build --target moonslate_app -j"$JOBS"
 
 echo "[4] Packaging (windeployqt gathers the Qt runtime)..."
