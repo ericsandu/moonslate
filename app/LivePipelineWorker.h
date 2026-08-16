@@ -16,8 +16,10 @@ public:
     QString piperVoice;
     QString langCode;
     QString moonModelName;
+    QString keyterms;
 
-    LivePipelineWorker(QString m, QString c, QString pv, QString lc, QString mm);
+    LivePipelineWorker(QString m, QString c, QString pv, QString lc,
+                       QString mm, QString kt);
 
 public slots:
     void setRecording(bool rec);

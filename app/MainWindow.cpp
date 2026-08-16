@@ -5,6 +5,7 @@
 #include <QHBoxLayout>
 #include <QActionGroup>
 #include <QAction>
+#include <QInputDialog>
 #include <QTime>
 #include <QScrollBar>
 #include <QDir>
@@ -45,6 +46,7 @@ MainWindow::MainWindow() {
     QSettings settings("Moonslate", "LiveTranslator");
     QString savedLang = settings.value("currentLanguage", "German").toString();
     QString savedMoon = settings.value("currentMoonshineModel", "tiny").toString();
+    currentKeyterms = settings.value("keyterms", "").toString();
 
     currentLang = supportedLanguages[1]; // default to German
     QMenu* langMenu = settingsMenu->addMenu("Language");
@@ -84,6 +86,10 @@ MainWindow::MainWindow() {
     }
     
     settingsBtn->setMenu(settingsMenu);
+
+    QAction* keytermsAct = settingsMenu->addAction("Custom Vocabulary...");
+    connect(keytermsAct, &QAction::triggered, this, &MainWindow::editKeyterms);
+
     headerLayout->addWidget(settingsBtn);
     
     toggleBtn = new QPushButton("Loading...");
@@ -197,6 +203,23 @@ void MainWindow::switchMoonshineModel(const QString& modelName) {
     checkAndStartPipeline();
 }
 
+void MainWindow::editKeyterms() {
+    bool ok = false;
+    QString text = QInputDialog::getMultiLineText(
+        this, "Custom Vocabulary",
+        "Comma-separated names and jargon to bias transcription towards.\n"
+        "Moonshine nudges the decoder towards these terms with no retraining,\n"
+        "so they come out spelled the way you write them here:",
+        currentKeyterms, &ok);
+    if (!ok) return;
+    text = text.simplified();
+    if (text == currentKeyterms) return;
+    currentKeyterms = text;
+    QSettings settings("Moonslate", "LiveTranslator");
+    settings.setValue("keyterms", currentKeyterms);
+    checkAndStartPipeline();
+}
+
 void MainWindow::checkAndStartPipeline() {
     // -------------------------------------------------------------------------
     // ARCHITECTURE: Pipeline Lifecycle Management
@@ -273,7 +296,7 @@ void MainWindow::checkAndStartPipeline() {
     // Now that all dependencies are present locally, start the worker thread.
     // The LivePipelineWorker handles audio capturing, streaming transcription, 
     // and live translation, emitting results asynchronously.
-    worker = new LivePipelineWorker(moonDir, ct2Dir, currentLang.piperVoice, currentLang.langCode, currentMoonshineModelName);
+    worker = new LivePipelineWorker(moonDir, ct2Dir, currentLang.piperVoice, currentLang.langCode, currentMoonshineModelName, currentKeyterms);
     connect(this, &MainWindow::recordingToggled, worker, &LivePipelineWorker::setRecording);
     connect(worker, &LivePipelineWorker::transcriptUpdated, this, &MainWindow::appendTranscript);
     connect(worker, &LivePipelineWorker::chunkReady, player, &AudioPlayer::onChunkReady, Qt::QueuedConnection);

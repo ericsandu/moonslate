@@ -24,6 +24,7 @@ public:
     QLabel* deLabel;
     
     QString currentMoonshineModelName;
+    QString currentKeyterms;
     LangConfig currentLang;
     
     LivePipelineWorker* worker = nullptr;
@@ -41,6 +42,7 @@ public slots:
     void appendTranscript(const QString& original, const QString& translated, const QString& execTime);
     void switchLanguage(const LangConfig& lang);
     void switchMoonshineModel(const QString& modelName);
+    void editKeyterms();
     void checkAndStartPipeline();
     void onToggle(bool checked);
 };

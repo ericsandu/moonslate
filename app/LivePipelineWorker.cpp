@@ -24,8 +24,8 @@
 #include <QIODevice>
 #include <rnnoise.h>
 
-LivePipelineWorker::LivePipelineWorker(QString m, QString c, QString pv, QString lc, QString mm)
-    : moonPath(m), ct2Path(c), piperVoice(pv), langCode(lc), moonModelName(mm) {}
+LivePipelineWorker::LivePipelineWorker(QString m, QString c, QString pv, QString lc, QString mm, QString kt)
+    : moonPath(m), ct2Path(c), piperVoice(pv), langCode(lc), moonModelName(mm), keyterms(kt) {}
 
 void LivePipelineWorker::setRecording(bool rec) {
     is_recording.store(rec);
@@ -42,7 +42,18 @@ void LivePipelineWorker::setRecording(bool rec) {
         } else if (moonModelName == "medium") {
             arch = moonshine::ModelArch::MEDIUM_STREAMING;
         }
-        moonshine::Transcriber transcriber(moonPath.toUtf8().constData(), arch);
+
+        // [FEATURE: Keyterm Biasing]: Moonshine's context biaser nudges the decoder's
+        // logits towards caller-supplied terms (names, jargon) with no retraining, so
+        // domain vocabulary comes out spelled right. Only the streaming architectures
+        // apply this, which is exactly what we run.
+        moonshine::Options transcriberOptions;
+        if (!keyterms.isEmpty()) {
+            transcriberOptions.push_back({"keyterms", keyterms.toStdString()});
+            std::cout << "    Biasing transcription towards custom vocabulary." << std::endl;
+        }
+
+        moonshine::Transcriber transcriber(moonPath.toUtf8().constData(), arch, 0.5, "", transcriberOptions);
 
         std::cout << "[2] Initializing Machine Translation Engine..." << std::endl;
         sentencepiece::SentencePieceProcessor spm_source, spm_target;
