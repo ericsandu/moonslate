@@ -25,8 +25,16 @@ set(WITH_MKL OFF CACHE BOOL "Disable Intel MKL" FORCE)
 set(WITH_OPENBLAS OFF CACHE BOOL "Disable OpenBLAS" FORCE)
 set(OPENMP_RUNTIME "COMP" CACHE STRING "Use standard compiler OpenMP instead of Intel" FORCE)
 set(ENABLE_CPU_DISPATCH OFF CACHE BOOL "Disable runtime CPU dispatch" FORCE)
-# Ruy is a lightweight, highly optimized matrix library made by Google specifically for ARM/x86 edge devices.
-set(WITH_RUY ON CACHE BOOL "Enable Ruy backend" FORCE)
+# GEMM backend per platform: ruy (Google's edge matrix library) on Linux and
+# Windows, Apple's Accelerate framework on macOS. CT2's own Windows builds use
+# MKL/DNNL, which would drag an Intel oneAPI install into CI; ruy is vendored
+# by CT2 and MSVC-supported, so it is the pragmatic first attempt.
+if(APPLE)
+  set(WITH_ACCELERATE ON CACHE BOOL "Enable Accelerate backend" FORCE)
+  set(WITH_RUY OFF CACHE BOOL "Disable Ruy backend" FORCE)
+else()
+  set(WITH_RUY ON CACHE BOOL "Enable Ruy backend" FORCE)
+endif()
 
 FetchContent_MakeAvailable(ctranslate2)
 
@@ -48,14 +56,21 @@ find_package(Qt6 REQUIRED COMPONENTS Core Multimedia Network Widgets Gui)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../noise-suppression-for-voice/external/rnnoise rnnoise_build)
 
-# Moonshine links dynamically against its vendored ONNX Runtime; the app binary
-# needs to find that library both at link time and at runtime.
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-  set(ORT_ARCH_DIR aarch64)
+# Resolve the vendored ONNX Runtime for this platform using moonshine's own
+# helper (sets ONNXRUNTIME_LIB_PATH).
+include(${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/third-party/onnxruntime/find-ort-library-path.cmake)
+
+set(MOONSHINE_BUILD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/build)
+if(WIN32)
+  set(MOONSHINE_LIB ${MOONSHINE_BUILD_DIR}/moonshine.lib)
+  set(MOONSHINE_RUNTIME_LIBS ${MOONSHINE_BUILD_DIR}/moonshine.dll ${ONNXRUNTIME_LIB_PATH})
+elseif(APPLE)
+  set(MOONSHINE_LIB ${MOONSHINE_BUILD_DIR}/libmoonshine.dylib)
+  set(MOONSHINE_RUNTIME_LIBS ${MOONSHINE_LIB} ${ONNXRUNTIME_LIB_PATH})
 else()
-  set(ORT_ARCH_DIR x86_64)
+  set(MOONSHINE_LIB ${MOONSHINE_BUILD_DIR}/libmoonshine.so)
+  set(MOONSHINE_RUNTIME_LIBS ${MOONSHINE_LIB} ${ONNXRUNTIME_LIB_PATH})
 endif()
-set(ORT_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/third-party/onnxruntime/lib/linux/${ORT_ARCH_DIR})
 
 add_executable(moonslate_app
     main.cpp
@@ -65,18 +80,53 @@ add_executable(moonslate_app
     ModelDownloader.cpp
 )
 set_target_properties(moonslate_app PROPERTIES CXX_STANDARD 20)
-target_link_directories(moonslate_app PRIVATE ${ORT_LIB_DIR})
-target_link_options(moonslate_app PRIVATE "-Wl,-rpath,${ORT_LIB_DIR}")
-target_include_directories(moonslate_app PRIVATE 
+
+if(APPLE)
+  # Proper .app bundle with the mandatory microphone usage description;
+  # macdeployqt assembles the Qt frameworks around it in CI.
+  set_target_properties(moonslate_app PROPERTIES
+      OUTPUT_NAME Moonslate
+      MACOSX_BUNDLE TRUE
+      MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in)
+  set(MACOSX_BUNDLE_BUNDLE_NAME Moonslate)
+  set(MACOSX_BUNDLE_GUI_IDENTIFIER com.moonslate.app)
+  set(MACOSX_BUNDLE_LONG_VERSION_STRING "0.1.0")
+  set(MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0")
+  set(MACOSX_BUNDLE_BUNDLE_VERSION "0.1.0")
+endif()
+
+# Windows and macOS ship moonshine/ORT as shared libraries next to the
+# executable; macOS resolves them via the dylib's @loader_path rpath.
+if(NOT UNIX)
+  add_custom_command(TARGET moonslate_app POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              ${MOONSHINE_RUNTIME_LIBS} $<TARGET_FILE_DIR:moonslate_app>
+      COMMENT "Copying moonshine and ONNX Runtime runtime libraries")
+endif()
+
+if(UNIX AND NOT APPLE)
+  # Linux: resolve moonshine/ORT from the executable's directory when running
+  # from a release package, and from the build tree during development.
+  target_link_options(moonslate_app PRIVATE
+      "-Wl,-rpath,$ORIGIN"
+      "-Wl,-rpath,${MOONSHINE_BUILD_DIR}"
+      "-Wl,-rpath,${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/third-party/onnxruntime/lib/linux/aarch64"
+      "-Wl,-rpath,${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/third-party/onnxruntime/lib/linux/x86_64")
+elseif(APPLE)
+  target_link_options(moonslate_app PRIVATE "-Wl,-rpath,@executable_path")
+endif()
+
+target_include_directories(moonslate_app PRIVATE
     ${sentencepiece_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/moonshine-utils
     ${CMAKE_CURRENT_SOURCE_DIR}/../noise-suppression-for-voice/external/rnnoise/include
 )
-target_link_libraries(moonslate_app PRIVATE 
-    ctranslate2 
-    sentencepiece-static 
-    ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/build/libmoonshine.so
+target_link_libraries(moonslate_app PRIVATE
+    ctranslate2
+    sentencepiece-static
+    ${MOONSHINE_LIB}
+    ${ONNXRUNTIME_LIB_PATH}
     Qt6::Core Qt6::Multimedia Qt6::Network Qt6::Widgets Qt6::Gui
     RnNoise
 )
