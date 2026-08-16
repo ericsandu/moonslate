@@ -80,7 +80,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
-          components: multimedia
+          components: qtmultimedia
           cache: true
 
       - name: Install build tools
@@ -141,7 +141,7 @@ jobs:
           lfs: true
 
       - name: Install Dependencies
-        run: brew install qt ninja ccache
+        run: brew install qt ninja ccache libomp
 
       - name: Configure git identity (for patch application)
         run: |

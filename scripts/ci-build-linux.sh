@@ -24,6 +24,14 @@ bash scripts/apply-moonshine-patches.sh
 echo "[2] Building Moonshine core..."
 cmake -G Ninja -S moonshine/core -B moonshine/core/build -DCMAKE_BUILD_TYPE=Release ${EXTRA_CMAKE_FLAGS:-}
 cmake --build moonshine/core/build --target moonshine -j"$JOBS"
+# libmoonshine.so resolves libonnxruntime through its own $ORIGIN runpath (the
+# loader does not inherit the executable's RUNPATH for dependency resolution),
+# so the ORT library must sit next to it in the build tree.
+case "$(uname -m)" in
+    aarch64|arm64) ORT_ARCH=aarch64 ;;
+    *) ORT_ARCH=x86_64 ;;
+esac
+cp "moonshine/core/third-party/onnxruntime/lib/linux/$ORT_ARCH/libonnxruntime.so.1" moonshine/core/build/
 
 echo "[3] Building Moonslate app (CTranslate2, SentencePiece)..."
 cmake -G Ninja -S app -B app/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ${EXTRA_CMAKE_FLAGS:-}
@@ -36,10 +44,6 @@ echo "[4] Headless selftest..."
 QT_QPA_PLATFORM=offscreen app/build/moonslate_app --selftest
 
 echo "[5] Packaging..."
-case "$(uname -m)" in
-    aarch64|arm64) ORT_ARCH=aarch64 ;;
-    *) ORT_ARCH=x86_64 ;;
-esac
 rm -rf package
 mkdir -p package/moonslate/bin package/moonslate/share/moonslate/models package/moonslate/share/moonslate/tts-data
 cp app/build/moonslate_app package/moonslate/bin/
