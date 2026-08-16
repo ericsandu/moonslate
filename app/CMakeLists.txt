@@ -30,6 +30,10 @@ set(ENABLE_CPU_DISPATCH OFF CACHE BOOL "Disable runtime CPU dispatch" FORCE)
 # MKL/DNNL, which would drag an Intel oneAPI install into CI; ruy is vendored
 # by CT2 and MSVC-supported, so it is the pragmatic first attempt.
 if(APPLE)
+  # Apple Clang ships no OpenMP runtime and CTranslate2's FindOpenMP cannot
+  # use Homebrew's libomp without fragile manual flags; the Accelerate/ruy
+  # GEMM paths do not need it, so build CT2 without OpenMP on macOS.
+  set(OPENMP_RUNTIME "NONE" CACHE STRING "No OpenMP runtime on Apple Clang" FORCE)
   set(WITH_ACCELERATE ON CACHE BOOL "Enable Accelerate backend" FORCE)
   set(WITH_RUY OFF CACHE BOOL "Disable Ruy backend" FORCE)
 else()

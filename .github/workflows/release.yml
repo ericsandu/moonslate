@@ -82,6 +82,7 @@ jobs:
           version: '6.8.*'
           components: qtmultimedia
           cache: true
+          cache-key-prefix: moonslate-qt
 
       - name: Install build tools
         shell: pwsh
@@ -141,7 +142,7 @@ jobs:
           lfs: true
 
       - name: Install Dependencies
-        run: brew install qt ninja ccache libomp
+        run: brew install qt ninja ccache
 
       - name: Configure git identity (for patch application)
         run: |

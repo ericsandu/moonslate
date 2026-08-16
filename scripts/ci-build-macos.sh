@@ -26,9 +26,8 @@ cmake -G Ninja -S moonshine/core -B moonshine/core/build -DCMAKE_BUILD_TYPE=Rele
 cmake --build moonshine/core/build --target moonshine -j"$JOBS"
 
 echo "[3] Building Moonslate app (CTranslate2, SentencePiece, Qt)..."
-# Apple Clang needs Homebrew's libomp runtime for CTranslate2's OpenMP usage.
 cmake -G Ninja -S app -B app/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DCMAKE_PREFIX_PATH="$QT_PREFIX" -DOpenMP_ROOT="$(brew --prefix libomp)" ${EXTRA_CMAKE_FLAGS:-}
+    -DCMAKE_PREFIX_PATH="$QT_PREFIX" ${EXTRA_CMAKE_FLAGS:-}
 perl -pi -e 's/#include <vector>/#include <vector>\n#include <cstdint>/' \
     app/build/_deps/sentencepiece-src/src/sentencepiece_processor.h || true
 cmake --build app/build --target moonslate_app -j"$JOBS"
