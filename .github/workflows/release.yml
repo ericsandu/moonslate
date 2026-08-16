@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout Code
@@ -23,26 +26,151 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake qt6-base-dev qt6-multimedia-dev libpulse-dev libasound2-dev curl
+          sudo apt-get install -y build-essential cmake ninja-build ccache qt6-base-dev qt6-multimedia-dev libpulse-dev libasound2-dev curl perl
 
-      - name: Build Application
+      - name: Configure git identity (for patch application)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          chmod +x ./build.sh
-          ./build.sh
 
-      - name: Package Release
-        run: |
-          mkdir -p package/moonslate
-          cp app/build/moonslate_app package/moonslate/
-          cp README.md package/moonslate/
-          cd package
-          tar -czvf moonslate-linux-x86_64.tar.gz moonslate
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-linux-${{ hashFiles('app/CMakeLists.txt') }}-${{ github.sha }}
+          restore-keys: ccache-linux-
 
-      - name: Create Release and Upload Asset
+      - name: Build Application
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          EXTRA_CMAKE_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: bash scripts/ci-build-linux.sh
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moonslate-linux
+          path: package/moonslate-linux-*.tar.gz
+
+      - name: Attach Release Asset
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: package/moonslate-linux-x86_64.tar.gz
+          files: package/moonslate-linux-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          components: multimedia
+          cache: true
+
+      - name: Install build tools
+        shell: pwsh
+        run: choco install --no-progress ccache
+
+      - name: Configure git identity (for patch application)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-windows-${{ hashFiles('app/CMakeLists.txt') }}-${{ github.sha }}
+          restore-keys: ccache-windows-
+
+      - name: Build Application
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          EXTRA_CMAKE_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: bash scripts/ci-build-windows.sh
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moonslate-windows
+          path: moonslate-windows-x86_64.zip
+
+      - name: Attach Release Asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: moonslate-windows-x86_64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install Dependencies
+        run: brew install qt ninja ccache
+
+      - name: Configure git identity (for patch application)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-macos-${{ hashFiles('app/CMakeLists.txt') }}-${{ github.sha }}
+          restore-keys: ccache-macos-
+
+      - name: Build Application
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          EXTRA_CMAKE_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: bash scripts/ci-build-macos.sh
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moonslate-macos
+          path: package/moonslate-macos-arm64.zip
+
+      - name: Attach Release Asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: package/moonslate-macos-arm64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
