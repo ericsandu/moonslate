@@ -24,6 +24,13 @@ mkdir -p moonshine/core/build
 cd moonshine/core/build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
+# libmoonshine.so has runpath $ORIGIN but links the vendored ONNX Runtime living in
+# third-party; drop a copy next to it so the app resolves it at runtime.
+case "$(uname -m)" in
+    aarch64|arm64) ORT_ARCH=aarch64 ;;
+    *) ORT_ARCH=x86_64 ;;
+esac
+cp ../../../third-party/onnxruntime/lib/linux/$ORT_ARCH/libonnxruntime.so.1 .
 cd ../../../
 
 echo "[3] Building Moonslate Integrations (CTranslate2, SentencePiece)..."
