@@ -23,7 +23,11 @@ echo "[1] Applying moonshine patches..."
 bash scripts/apply-moonshine-patches.sh
 
 echo "[2] Building Moonshine core (MSVC)..."
-cmake -G Ninja -S moonshine/core -B moonshine/core/build -DCMAKE_BUILD_TYPE=Release ${EXTRA_CMAKE_FLAGS:-}
+# Build moonshine as a DLL like on the other platforms; the Windows default is
+# a static moonshine.lib whose private static-library dependencies
+# (moonshine-utils, ort-utils) are not linked into consumer binaries.
+cmake -G Ninja -S moonshine/core -B moonshine/core/build -DCMAKE_BUILD_TYPE=Release \
+    -DMOONSHINE_BUILD_SHARED=ON ${EXTRA_CMAKE_FLAGS:-}
 cmake --build moonshine/core/build --target moonshine -j"$JOBS"
 
 echo "[3] Building Moonslate app (CTranslate2, SentencePiece, Qt)..."
