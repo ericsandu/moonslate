@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "ModelDownloader.h"
+#include "AppPaths.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -270,7 +271,7 @@ void MainWindow::checkAndStartPipeline() {
     deLabel->setText(currentLang.name + " (Translation)");
 
     // [STATE 2] Validate Moonshine STT Model
-    QString moonDir = "../models/moonshine-" + currentMoonshineModelName;
+    QString moonDir = AppPaths::modelsRoot() + "/moonshine-" + currentMoonshineModelName;
     if (!QDir(moonDir).exists() || QDir(moonDir).isEmpty()) {
         toggleBtn->setText("Downloading Moonshine " + currentMoonshineModelName + "...");
         ModelDownloader* downloader = new ModelDownloader(this);
@@ -295,7 +296,7 @@ void MainWindow::checkAndStartPipeline() {
     }
 
     // [STATE 3] Validate CTranslate2 Translation Model
-    QString ct2Dir = "../models/opus-mt-en-" + currentLang.langCode + "-ct2";
+    QString ct2Dir = AppPaths::modelsRoot() + "/opus-mt-en-" + currentLang.langCode + "-ct2";
     if (!QDir(ct2Dir).exists() || QDir(ct2Dir).isEmpty()) {
         toggleBtn->setText("Downloading " + currentLang.name + "...");
         ModelDownloader* downloader = new ModelDownloader(this);
@@ -324,8 +325,7 @@ void MainWindow::checkAndStartPipeline() {
     // instead of files bundled in the repository. The library exposes the exact
     // per-language manifest (G2P lexicon + the selected voice's model, weights
     // and config), so fetch anything missing under the g2p root it reads from.
-    const QString g2pRoot = QDir::cleanPath(
-        QCoreApplication::applicationDirPath() + "/../../moonshine/core/moonshine-tts/data");
+    const QString g2pRoot = AppPaths::ttsDataRoot();
     try {
         const std::string depsJson = moonshine::TextToSpeech::getDependencies(
             currentLang.langCode.toStdString(),
