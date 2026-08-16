@@ -264,6 +264,13 @@ void MainWindow::checkAndStartPipeline() {
     if (!QDir(moonDir).exists() || QDir(moonDir).isEmpty()) {
         toggleBtn->setText("Downloading Moonshine " + currentMoonshineModelName + "...");
         ModelDownloader* downloader = new ModelDownloader(this);
+        connect(downloader, &ModelDownloader::downloadProgress, this, [this](const QString& file, qint64 received, qint64 total) {
+            if (total > 0) {
+                toggleBtn->setText(QString("Downloading %1... %2%").arg(file).arg(received * 100 / total));
+            } else {
+                toggleBtn->setText("Downloading " + file + "...");
+            }
+        });
         connect(downloader, &ModelDownloader::downloadFinished, [this, downloader]() {
             downloader->deleteLater();
             checkAndStartPipeline(); // Recurse to check the next model
@@ -282,6 +289,13 @@ void MainWindow::checkAndStartPipeline() {
     if (!QDir(ct2Dir).exists() || QDir(ct2Dir).isEmpty()) {
         toggleBtn->setText("Downloading " + currentLang.name + "...");
         ModelDownloader* downloader = new ModelDownloader(this);
+        connect(downloader, &ModelDownloader::downloadProgress, this, [this](const QString& file, qint64 received, qint64 total) {
+            if (total > 0) {
+                toggleBtn->setText(QString("Downloading %1... %2%").arg(file).arg(received * 100 / total));
+            } else {
+                toggleBtn->setText("Downloading " + file + "...");
+            }
+        });
         connect(downloader, &ModelDownloader::downloadFinished, [this, downloader]() {
             downloader->deleteLater();
             checkAndStartPipeline(); // Recurse to actually start
