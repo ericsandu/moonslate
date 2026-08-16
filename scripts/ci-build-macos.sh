@@ -43,7 +43,9 @@ QT_QPA_PLATFORM=offscreen "$APP/Contents/MacOS/Moonslate" --selftest
 echo "[5] Packaging .app bundle..."
 rm -rf package
 mkdir -p package
-"$QT_PREFIX/bin/macdeployqt" "$APP" -always-overwrite
+# -qmldir makes macdeployqt scan the QML sources for imports and bundle the
+# Qt Quick modules the qrc-compiled shell needs.
+"$QT_PREFIX/bin/macdeployqt" "$APP" -always-overwrite -qmldir="$ROOT/app/qml"
 codesign --force --deep --sign - "$APP"
 
 ditto -c -k --keepParent "$APP" package/moonslate-macos-arm64.zip

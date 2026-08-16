@@ -49,7 +49,10 @@ cp app/build/moonslate_app.exe package/moonslate/bin/
 cp moonshine/core/build/moonshine.dll package/moonslate/bin/
 cp moonshine/core/third-party/onnxruntime/lib/windows/x86_64/onnxruntime.dll package/moonslate/bin/
 cp README.md LICENSE package/moonslate/
-"$QT_ROOT_DIR/bin/windeployqt.exe" package/moonslate/bin/moonslate_app.exe --release --no-translations
+# --qmldir makes windeployqt scan the QML sources for imports and deploy the
+# Qt Quick modules the qrc-compiled shell needs.
+"$QT_ROOT_DIR/bin/windeployqt.exe" package/moonslate/bin/moonslate_app.exe --release --no-translations \
+    --qmldir "$ROOT/app/qml"
 
 echo "[5] Headless selftest..."
 QT_QPA_PLATFORM=offscreen package/moonslate/bin/moonslate_app.exe --selftest

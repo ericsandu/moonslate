@@ -52,11 +52,14 @@ set(SPM_ENABLE_TCMALLOC OFF CACHE BOOL "Disable SPM TCMalloc" FORCE)
 FetchContent_MakeAvailable(sentencepiece)
 
 # ==========================================
-# Qt Multimedia Application (Moonslate Live)
+# Qt Quick Application (Moonslate Live)
 # ==========================================
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Multimedia Network Widgets Gui)
+# Pure Qt Quick shell (no Widgets) so the same UI runs on desktop and the
+# mobile targets; Widgets is unsupported on iOS.
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts Multimedia Network)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../noise-suppression-for-voice/external/rnnoise rnnoise_build)
 
@@ -78,12 +81,15 @@ endif()
 
 add_executable(moonslate_app
     main.cpp
-    MainWindow.cpp
+    AppController.cpp
     LivePipelineWorker.cpp
     AudioPlayer.cpp
     ModelDownloader.cpp
 )
 set_target_properties(moonslate_app PROPERTIES CXX_STANDARD 20)
+qt_add_resources(moonslate_app "moonslate_qml"
+    PREFIX "/"
+    FILES qml/Main.qml)
 
 if(APPLE)
   # Proper .app bundle with the mandatory microphone usage description;
@@ -131,6 +137,7 @@ target_link_libraries(moonslate_app PRIVATE
     sentencepiece-static
     ${MOONSHINE_LIB}
     ${ONNXRUNTIME_LIB_PATH}
-    Qt6::Core Qt6::Multimedia Qt6::Network Qt6::Widgets Qt6::Gui
+    Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::QuickLayouts
+    Qt6::Multimedia Qt6::Network
     RnNoise
 )

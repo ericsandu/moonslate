@@ -5,7 +5,7 @@
 > and next steps. **Keep this updated as work progresses** — every session that changes
 > something meaningful should end with a commit touching this file.
 
-Last updated: 2026-08-16 (session: cross-platform CI + QML refactor kickoff)
+Last updated: 2026-08-16 (session: QML shell + int8 models landed)
 
 ---
 
@@ -161,38 +161,46 @@ ditto'd signed .app (Info.plist has NSMicrophoneUsageDescription).
    `gh run view --job <id> --log | grep -E "error|FAILED"` from the repo ROOT (running it
    inside the submodule dir queries the wrong repo).
 
-## 7. IN-FLIGHT WORK (started, not yet committed): QML shell + int8 models
+## 7. QML shell (DONE, 2026-08-16) and int8 models
 
-Goal: replace the Qt **Widgets** UI with a pure **Qt Quick (QML)** shell so the same UI
-runs on desktop + Android + iOS (Widgets is unsupported on iOS). Research + planning done;
-implementation not started on disk yet.
+The Qt **Widgets** UI was replaced by a pure **Qt Quick (QML)** shell so the same UI
+runs on desktop + Android + iOS (Widgets is unsupported on iOS):
 
-Plan:
-1. Extract pipeline orchestration out of `MainWindow` into a new
-   `TranslatorController` (QObject, no Widgets): properties `statusText`, `ready`,
-   `recording`, `transcripts` (QVariantList of {time, original, translated, execTime}),
-   language/model lists, `keyterms`; invokables `selectLanguage`, `selectMoonshineModel`,
-   `setKeyterms`. QSettings keys unchanged (`Moonslate`/`LiveTranslator`: currentLanguage,
-   currentMoonshineModel, keyterms) so user settings survive.
-2. `app/qml/Main.qml`: dark theme (bg #121212, panes #1E1E1E / #1A2E1A, accent #4CAF50,
-   red #F44336), header with title + settings menu (Language submenu, Moonshine Model
-   submenu, Custom Vocabulary dialog with multiline TextInput) + record toggle showing
-   status/download progress, two transcript panes (Flickable + Repeater of entry cards).
-3. `main.cpp`: `QGuiApplication` + `QQmlApplicationEngine`, controller exposed as context
-   property, QML via qrc. Drop `Qt6::Widgets` entirely. Selftest gains a QML-load check
-   (`QT_QUICK_BACKEND=software` + offscreen) so CI verifies the declarative UI headlessly.
-4. CMake: `find_package(Qt6 COMPONENTS Core Gui Quick Qml Multimedia Network)`,
-   `qt_add_resources` for qml/. CI: linux apt needs `qt6-declarative-dev`; aqt default
-   archives include qtdeclarative (no extra module needed); brew qt includes it.
-5. Delete `MainWindow.{h,cpp}` once parity is reached.
-6. int8: write `docs/int8-models.md` (conversion + HF hosting guide), switch de/fr to the
-   verified int8 repos, document the mobile story (float16 it/pt/ru models expand to
-   ~600 MB RAM — int8 conversions needed for those languages, currently nonexistent).
+- `app/AppController.{h,cpp}` — QObject orchestration layer (the old MainWindow logic):
+  properties `statusText`/`statusColor`/`ready`/`recording`/`languageNames`/
+  `currentLanguageName`/`translationLabel`/`modelSizes`/`currentModelSize`/`keyterms`,
+  invokables `selectLanguage`/`selectModelSize`, WRITE property `keyterms`. Registered
+  with `qmlRegisterType<AppController>("Moonslate", 1, 0, ...)` in main.cpp.
+- `app/qml/Main.qml` — dark theme matching the old UI (bg #121212, panes #1E1E1E/#1A2E1A,
+  accent #4CAF50), ToolBar header, settings Menu with nested Language / Moonshine Model
+  submenus (Instantiator-driven), Custom Vocabulary dialog, record toggle bound to
+  statusText/statusColor, two TranscriptPane components (ListView + signal connect on
+  `transcriptReady`).
+- `main.cpp` — `QGuiApplication` + `QQmlApplicationEngine`, qrc-loaded QML, selftest now
+  ALSO loads the QML shell (`QT_QUICK_BACKEND=software`, `MOONSLATE_SELFTEST=1` env
+  suppresses AppController's pipeline start so headless CI doesn't download models).
+- CMake: `Core Gui Qml Quick QuickControls2 QuickLayouts Multimedia Network`
+  (NO Widgets), `qt_add_resources(... PREFIX "/" FILES qml/Main.qml)` → `qrc:/qml/Main.qml`.
+  **Gotchas learned**: qt_add_resources needs `set(CMAKE_AUTORCC ON)`; the resource
+  alias stacks on the prefix — `PREFIX "/qml" FILES qml/Main.qml` lands at
+  `/qml/qml/Main.qml`, use `PREFIX "/"`.
+- CI: linux apt gained `qt6-declarative-dev` (aqt default archives and brew qt already
+  include Quick); `windeployqt ... --qmldir app/qml` and
+  `macdeployqt ... -qmldir=app/qml` so the Qt Quick modules are deployed — the QML is
+  inside qrc, so the deploy tools cannot discover imports without being pointed at the
+  sources.
 
-Mobile follow-ups after QML lands (analyzed, not started): Android = Qt for Android +
-NDK (moonshine vendors per-ABI ORT .so; CT2+ruy cross-compiles; RECORD_AUDIO permission;
+int8 models: German→`cstr/opus-mt-en-de-ct2-int8` (72 MB), French→
+`craftwise/ct2-opus-mt-en-fr-int8` (73 MB); es/it/pt/ru have no hosted int8 build —
+`docs/int8-model-hosting.md` documents conversion (`ct2-transformers-converter
+--quantization int8`), HF upload, model-card/attribution (opus-mt is CC-BY-4.0), and
+wiring into `AppController`. MT cache dirs are now keyed by repo last path segment
+(int8 switch must not be shadowed by previously cached fp32 weights).
+
+Mobile follow-ups (analyzed, not started): Android = Qt for Android + NDK (moonshine
+vendors per-ABI ORT .so; CT2+ruy cross-compiles; RECORD_AUDIO permission;
 AppPaths → QStandardPaths::AppDataLocation). iOS = static framework path upstream already
-provides; needs QML shell (this refactor) + signing secrets.
+provides; needs signing secrets.
 
 ## 8. Local environment notes (this machine)
 

@@ -1,8 +1,2 @@
-build/
-.venv/
-models/
-__pycache__/
-*.o
-*.so
-*.a
-.DS_Store
+package/
+aqtinstall.log
