@@ -24,8 +24,8 @@
 #include <QIODevice>
 #include <rnnoise.h>
 
-LivePipelineWorker::LivePipelineWorker(QString m, QString c, QString pv, QString lc) 
-    : moonPath(m), ct2Path(c), piperVoice(pv), langCode(lc) {}
+LivePipelineWorker::LivePipelineWorker(QString m, QString c, QString pv, QString lc, QString mm)
+    : moonPath(m), ct2Path(c), piperVoice(pv), langCode(lc), moonModelName(mm) {}
 
 void LivePipelineWorker::setRecording(bool rec) {
     is_recording.store(rec);
@@ -33,7 +33,16 @@ void LivePipelineWorker::setRecording(bool rec) {
 
     void LivePipelineWorker::run() {
         std::cout << "[1] Initializing Live Voice-To-Text Transcription via Moonshine..." << std::endl;
-        moonshine::Transcriber transcriber(moonPath.toUtf8().constData(), moonshine::ModelArch::TINY_STREAMING);
+        // [SETBACK & FIX]: The STT model size selected in the GUI decides which streaming
+        // architecture is loaded; hardcoding TINY_STREAMING made the small/medium downloads
+        // pointless since the decoder always ran the tiny architecture.
+        moonshine::ModelArch arch = moonshine::ModelArch::TINY_STREAMING;
+        if (moonModelName == "small") {
+            arch = moonshine::ModelArch::SMALL_STREAMING;
+        } else if (moonModelName == "medium") {
+            arch = moonshine::ModelArch::MEDIUM_STREAMING;
+        }
+        moonshine::Transcriber transcriber(moonPath.toUtf8().constData(), arch);
 
         std::cout << "[2] Initializing Machine Translation Engine..." << std::endl;
         sentencepiece::SentencePieceProcessor spm_source, spm_target;

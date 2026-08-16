@@ -273,7 +273,7 @@ void MainWindow::checkAndStartPipeline() {
     // Now that all dependencies are present locally, start the worker thread.
     // The LivePipelineWorker handles audio capturing, streaming transcription, 
     // and live translation, emitting results asynchronously.
-    worker = new LivePipelineWorker(moonDir, ct2Dir, currentLang.piperVoice, currentLang.langCode);
+    worker = new LivePipelineWorker(moonDir, ct2Dir, currentLang.piperVoice, currentLang.langCode, currentMoonshineModelName);
     connect(this, &MainWindow::recordingToggled, worker, &LivePipelineWorker::setRecording);
     connect(worker, &LivePipelineWorker::transcriptUpdated, this, &MainWindow::appendTranscript);
     connect(worker, &LivePipelineWorker::chunkReady, player, &AudioPlayer::onChunkReady, Qt::QueuedConnection);

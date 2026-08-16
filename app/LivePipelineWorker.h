@@ -15,8 +15,9 @@ public:
     std::atomic<bool> is_recording{true};
     QString piperVoice;
     QString langCode;
+    QString moonModelName;
 
-    LivePipelineWorker(QString m, QString c, QString pv, QString lc);
+    LivePipelineWorker(QString m, QString c, QString pv, QString lc, QString mm);
 
 public slots:
     void setRecording(bool rec);
