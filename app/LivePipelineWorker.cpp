@@ -66,11 +66,13 @@ void LivePipelineWorker::setRecording(bool rec) {
 
         std::cout << "[3] Initializing Piper TTS Engine..." << std::endl;
         std::string voiceStr = piperVoice.toStdString();
-        std::vector<moonshine_option_t> piper_options = {
+        // [API CHANGE]: moonshine v0.1.2 owns option strings now (moonshine::Options)
+        // instead of borrowing const char* pointers in moonshine_option_t.
+        moonshine::Options tts_options = {
             {"g2p_root", "../../moonshine/core/moonshine-tts/data"},
-            {"voice", voiceStr.c_str()},
+            {"voice", voiceStr},
         };
-        moonshine::TextToSpeech tts_piper(langCode.toStdString().c_str(), piper_options);
+        moonshine::TextToSpeech tts_piper(langCode.toStdString(), tts_options);
 
         QAudioFormat format;
         format.setSampleRate(16000);

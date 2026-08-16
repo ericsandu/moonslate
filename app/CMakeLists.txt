@@ -48,6 +48,15 @@ find_package(Qt6 REQUIRED COMPONENTS Core Multimedia Network Widgets Gui)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../noise-suppression-for-voice/external/rnnoise rnnoise_build)
 
+# Moonshine links dynamically against its vendored ONNX Runtime; the app binary
+# needs to find that library both at link time and at runtime.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  set(ORT_ARCH_DIR aarch64)
+else()
+  set(ORT_ARCH_DIR x86_64)
+endif()
+set(ORT_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/third-party/onnxruntime/lib/linux/${ORT_ARCH_DIR})
+
 add_executable(moonslate_app
     main.cpp
     MainWindow.cpp
@@ -56,6 +65,8 @@ add_executable(moonslate_app
     ModelDownloader.cpp
 )
 set_target_properties(moonslate_app PROPERTIES CXX_STANDARD 20)
+target_link_directories(moonslate_app PRIVATE ${ORT_LIB_DIR})
+target_link_options(moonslate_app PRIVATE "-Wl,-rpath,${ORT_LIB_DIR}")
 target_include_directories(moonslate_app PRIVATE 
     ${sentencepiece_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core
