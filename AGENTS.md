@@ -139,6 +139,13 @@ Artifacts: linux tar.gz (bin + share skeleton), windows zip (windeployqt'd), mac
 ditto'd signed .app (Info.plist has NSMicrophoneUsageDescription).
 
 **CI gotchas learned the hard way** (don't relearn these):
+0. Linux Qt Quick via distro packages needs a surprisingly wide apt set:
+   `qt6-declarative-dev` + `qt6-base-private-dev` + `qt6-declarative-private-dev`
+   (Qt6::QuickLayouts references QtGui/QtQuick versioned private include dirs),
+   `libxkbcommon-dev` (XKB::XKB target for Qt6::GuiPrivate), and at RUNTIME the
+   `qml6-module-*` packages (qtqml, qtqml-workerscript, qtquick, qtquick-controls,
+   qtquick-layouts, qtquick-templates, qtquick-window) — linking succeeds without
+   them, the selftest QML load fails with "module QtQuick is not installed".
 1. Linux runtime: the loader does NOT inherit the executable's RUNPATH for transitive
    deps — `libonnxruntime.so.1` must be copied next to `libmoonshine.so` (script does).
 2. Windows Qt: `install-qt-action@v4` input is **`modules:`**, NOT `components:`
