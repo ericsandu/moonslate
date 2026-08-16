@@ -32,15 +32,19 @@ perl -pi -e 's/#include <vector>/#include <vector>\n#include <cstdint>/' \
     app/build/_deps/sentencepiece-src/src/sentencepiece_processor.h || true
 cmake --build app/build --target moonslate_app -j"$JOBS"
 
-echo "[4] Packaging .app bundle..."
+APP=app/build/Moonslate.app
+
+# Selftest against the build-tree bundle while it still resolves Qt from the
+# Homebrew prefix: macdeployqt prunes every platform plugin except cocoa, and
+# the headless runner has no window server for cocoa.
+echo "[4] Headless selftest..."
+QT_QPA_PLATFORM=offscreen "$APP/Contents/MacOS/Moonslate" --selftest
+
+echo "[5] Packaging .app bundle..."
 rm -rf package
 mkdir -p package
-APP=app/build/Moonslate.app
 "$QT_PREFIX/bin/macdeployqt" "$APP" -always-overwrite
 codesign --force --deep --sign - "$APP"
-
-echo "[5] Headless selftest..."
-QT_QPA_PLATFORM=offscreen "$APP/Contents/MacOS/Moonslate" --selftest
 
 ditto -c -k --keepParent "$APP" package/moonslate-macos-arm64.zip
 

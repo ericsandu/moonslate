@@ -80,7 +80,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
-          components: qtmultimedia
+          modules: qtmultimedia
           cache: true
           cache-key-prefix: moonslate-qt
 
