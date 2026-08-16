@@ -11,6 +11,8 @@ Moonslate is a blazing-fast, privacy-first, fully offline **Live Speech-to-Speec
 - **Voice Activity Detection (VAD)**: Incorporates `RNNoise` to aggressively filter out background noise and prevent model hallucination during silence.
 - **Software AEC**: Implements a clever software-level Acoustic Echo Cancellation hack to prevent the microphone from picking up its own TTS playback, eliminating feedback loops.
 - **Persistent State**: Automatically remembers your preferred STT model sizes and translation languages across restarts.
+- **Custom Vocabulary (Keyterm Biasing)**: Comma-separated terms entered via **Settings > Custom Vocabulary** bias the Moonshine decoder towards your names and jargon with no retraining, so domain vocabulary comes out spelled correctly.
+- **Download Progress**: Model downloads show per-file progress directly on the status button.
 
 ## 🏗️ Architecture
 
@@ -56,12 +58,12 @@ Once built, simply launch the binary:
 
 Moonslate is rapidly evolving. The following features are planned for future iterations:
 
-- [ ] **Two-Way Translation**: Currently, the pipeline is hardcoded for English -> Target Language. We plan to introduce full duplex conversation support (e.g., German back to English).
+- [ ] **Two-Way Translation**: Currently, the pipeline is hardcoded for English -> Target Language. We plan to introduce full duplex conversation support (e.g., German back to English). Upstream moonshine now publishes non-English STT models (Spanish, Japanese, Korean, and more), which unblocks the reverse direction once VAD-segmented batch transcription is wired into the streaming worker.
 - [ ] **Client-Server Architecture**: Support offloading the heavy ML processing (CTranslate2 / Moonshine) to a separate, self-hosted GPU processing server, allowing the Qt frontend to act as a lightweight, low-power client.
 - [ ] **Cross-Platform Builds**: Expand CI/CD pipelines to automatically build, package, and release native executable artifacts for Windows and macOS, alongside the current Linux releases.
 - [ ] **Hardware AEC Integration**: Replace the software muting hack with true DSP-based Acoustic Echo Cancellation for uninterrupted conversational flow.
 - [ ] **GPU Acceleration**: Expose options to leverage CUDA/TensorRT for Moonshine and CTranslate2 for users with dedicated hardware.
-- [ ] **Extended Language Support**: Expand the supported language matrix beyond French, German, and Spanish.
+- [x] **Extended Language Support**: French, German, Spanish, Italian, Portuguese, and Russian are now supported. Dutch and Polish remain blocked on the model side (no compatible CTranslate2 build for Dutch, no Piper voice for Polish).
 
 ## 🤝 Contributing
 
