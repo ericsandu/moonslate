@@ -39,6 +39,11 @@ cmake -G Ninja -S moonshine/core -B moonshine/core/build -DCMAKE_BUILD_TYPE=Rele
     -DANDROID_STL=c++_shared -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" ${EXTRA_CMAKE_FLAGS:-}
 cmake --build moonshine/core/build --target moonshine -j"$JOBS"
 
+echo "Qt prefix contents:"
+ls "$QT_ROOT_DIR" || true
+find "$QT_ROOT_DIR" -maxdepth 4 -name "Qt6Config.cmake" -print || true
+ls "$QT_ROOT_DIR/bin/qt-cmake" || true
+
 echo "[3] Building Moonslate app (android $ABI)..."
 # qt-cmake (not plain cmake): with the NDK toolchain, find_package searches
 # are restricted to CMAKE_FIND_ROOT_PATH (the sysroot), so CMAKE_PREFIX_PATH
