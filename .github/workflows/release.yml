@@ -232,8 +232,6 @@ jobs:
         env:
           CCACHE_DIR: ${{ runner.temp }}/ccache
           EXTRA_CMAKE_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: bash scripts/ci-build-android.sh
 
       - name: Upload Build Artifact
