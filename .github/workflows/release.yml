@@ -216,6 +216,9 @@ jobs:
           cache: false
           cache-key-prefix: moonslate-qt-android
 
+      - name: Install build tools
+        run: sudo apt-get install -y ccache
+
       - name: Configure git identity (for patch application)
         run: |
           git config --global user.name "github-actions[bot]"

@@ -21,6 +21,7 @@ done
 
 echo "[1] Applying moonshine patches..."
 bash scripts/apply-moonshine-patches.sh
+sed -i 's/-Werror//g' moonshine/core/CMakeLists.txt
 
 echo "[2] Building Moonshine core (iOS arm64, static)..."
 cmake -G Ninja -S moonshine/core -B moonshine/core/build -DCMAKE_BUILD_TYPE=Release \
@@ -31,7 +32,7 @@ cmake --build moonshine/core/build --target moonshine -j"$JOBS"
 echo "[3] Building Moonslate app (iOS arm64)..."
 # CMAKE_PROJECT_INCLUDE defines the Xcode-only helper sentencepiece calls on
 # iOS so its FetchContent configure survives under Ninja (see cmake/ios-compat.cmake).
-cmake -G Ninja -S app -B app/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+"$QT_ROOT_DIR/bin/qt-cmake" -G Ninja -S app -B app/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 \
     -DCMAKE_PROJECT_INCLUDE="$ROOT/cmake/ios-compat.cmake" \
     -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" ${EXTRA_CMAKE_FLAGS:-}

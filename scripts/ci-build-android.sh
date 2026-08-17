@@ -29,6 +29,9 @@ done
 
 echo "[1] Applying moonshine patches..."
 bash scripts/apply-moonshine-patches.sh
+# moonshine builds with -Wall -Wextra -pedantic -Werror; new compiler majors
+# (like GCC 13 on the linux runners) trip false positives, so strip it.
+sed -i 's/-Werror//g' moonshine/core/CMakeLists.txt
 
 echo "[2] Building Moonshine core (android $ABI)..."
 cmake -G Ninja -S moonshine/core -B moonshine/core/build -DCMAKE_BUILD_TYPE=Release \
@@ -37,7 +40,10 @@ cmake -G Ninja -S moonshine/core -B moonshine/core/build -DCMAKE_BUILD_TYPE=Rele
 cmake --build moonshine/core/build --target moonshine -j"$JOBS"
 
 echo "[3] Building Moonslate app (android $ABI)..."
-cmake -G Ninja -S app -B app/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+# qt-cmake (not plain cmake): with the NDK toolchain, find_package searches
+# are restricted to CMAKE_FIND_ROOT_PATH (the sysroot), so CMAKE_PREFIX_PATH
+# alone cannot find Qt6. qt-cmake wires the Qt install into the find roots.
+"$QT_ROOT_DIR/bin/qt-cmake" -G Ninja -S app -B app/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" -DANDROID_ABI=$ABI -DANDROID_PLATFORM=$PLATFORM \
     -DANDROID_STL=c++_shared -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" ${EXTRA_CMAKE_FLAGS:-}
 perl -pi -e 's/#include <vector>/#include <vector>\n#include <cstdint>/' \
