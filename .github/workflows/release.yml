@@ -178,3 +178,117 @@ jobs:
           files: package/moonslate-macos-arm64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Basic mobile CI: cross-build + package only. Artifacts are uploaded on
+  # every run but NOT attached to releases yet — Android produces a
+  # debug-signed APK (no keystore) and iOS an unsigned .app (no signing
+  # secrets). Both become release assets once signing is set up.
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Set up JDK (gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Qt for Android left the classic download.qt.io repository after 6.7;
+      # newer packages only exist via the official installer API.
+      - name: Install Qt for Android
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          target: android
+          arch: android_arm64_v8a
+          modules: qtmultimedia
+          use-official: true
+          cache: false
+          cache-key-prefix: moonslate-qt-android
+
+      - name: Configure git identity (for patch application)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-android-${{ hashFiles('app/CMakeLists.txt') }}-${{ github.sha }}
+          restore-keys: ccache-android-
+
+      - name: Build Application
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          EXTRA_CMAKE_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: bash scripts/ci-build-android.sh
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moonslate-android
+          path: package/moonslate-android-arm64-debug.apk
+
+  build-ios:
+    name: Build iOS
+    runs-on: macos-15
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install Qt for iOS
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          target: ios
+          arch: ios
+          modules: qtmultimedia
+          cache: false
+          cache-key-prefix: moonslate-qt-ios
+
+      - name: Install build tools
+        run: brew install ninja ccache
+
+      - name: Configure git identity (for patch application)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-ios-${{ hashFiles('app/CMakeLists.txt') }}-${{ github.sha }}
+          restore-keys: ccache-ios-
+
+      - name: Build Application
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          EXTRA_CMAKE_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: bash scripts/ci-build-ios.sh
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moonslate-ios
+          path: package/moonslate-ios-arm64-unsigned.zip

@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QStandardPaths>
 #include <QString>
 
 // Centralizes where Moonslate keeps its downloadable assets (STT/MT models and
@@ -24,10 +25,16 @@ inline bool sourceTreeLayout() {
 }
 
 inline QString shareRoot() {
+#ifdef Q_OS_ANDROID
+    // The APK's native library directory is not writable; use the app-private
+    // data location the system grants us.
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+#else
     if (sourceTreeLayout()) {
         return QDir(exeDir() + "/../..").absolutePath(); // repository root
     }
     return QDir(exeDir() + "/../share/moonslate").absolutePath();
+#endif
 }
 
 inline QString modelsRoot() {

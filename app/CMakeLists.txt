@@ -71,15 +71,27 @@ set(MOONSHINE_BUILD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/build)
 if(WIN32)
   set(MOONSHINE_LIB ${MOONSHINE_BUILD_DIR}/moonshine.lib)
   set(MOONSHINE_RUNTIME_LIBS ${MOONSHINE_BUILD_DIR}/moonshine.dll ${ONNXRUNTIME_LIB_PATH})
+elseif(APPLE AND IOS)
+  # iOS forbids sideloaded dylibs; moonshine's default there is a static lib.
+  set(MOONSHINE_LIB ${MOONSHINE_BUILD_DIR}/libmoonshine.a)
 elseif(APPLE)
   set(MOONSHINE_LIB ${MOONSHINE_BUILD_DIR}/libmoonshine.dylib)
   set(MOONSHINE_RUNTIME_LIBS ${MOONSHINE_LIB} ${ONNXRUNTIME_LIB_PATH})
 else()
+  # Linux and Android (Android bundles it via QT_ANDROID_EXTRA_LIBS).
   set(MOONSHINE_LIB ${MOONSHINE_BUILD_DIR}/libmoonshine.so)
   set(MOONSHINE_RUNTIME_LIBS ${MOONSHINE_LIB} ${ONNXRUNTIME_LIB_PATH})
 endif()
 
-add_executable(moonslate_app
+if(ANDROID)
+    # Consumed by qt_add_executable below when it renders the manifest.
+    set(QT_ANDROID_PERMISSIONS "android.permission.RECORD_AUDIO" "android.permission.INTERNET")
+    set(QT_ANDROID_PACKAGE_NAME "com.moonslate.app")
+endif()
+
+# qt_add_executable: drop-in wrapper that additionally prepares Android
+# packaging (deployment settings JSON) and iOS bundle handling.
+qt_add_executable(moonslate_app
     main.cpp
     AppController.cpp
     LivePipelineWorker.cpp
@@ -87,6 +99,16 @@ add_executable(moonslate_app
     ModelDownloader.cpp
 )
 set_target_properties(moonslate_app PROPERTIES CXX_STANDARD 20)
+
+if(ANDROID)
+    # The QML lives inside qrc, so androiddeployqt's qmlimportscanner must be
+    # pointed at the sources to learn which Qt Quick modules to bundle.
+    set_target_properties(moonslate_app PROPERTIES
+        QT_QML_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
+    # Shared libraries bundled into the APK next to libmoonslate_app.so.
+    set_target_properties(moonslate_app PROPERTIES
+        QT_ANDROID_EXTRA_LIBS ${MOONSHINE_LIB} ${ONNXRUNTIME_LIB_PATH})
+endif()
 qt_add_resources(moonslate_app "moonslate_qml"
     PREFIX "/"
     FILES qml/Main.qml)
@@ -114,7 +136,7 @@ if(NOT UNIX)
       COMMENT "Copying moonshine and ONNX Runtime runtime libraries")
 endif()
 
-if(UNIX AND NOT APPLE)
+if(UNIX AND NOT APPLE AND NOT ANDROID)
   # Linux: resolve moonshine/ORT from the executable's directory when running
   # from a release package, and from the build tree during development.
   target_link_options(moonslate_app PRIVATE
@@ -122,9 +144,11 @@ if(UNIX AND NOT APPLE)
       "-Wl,-rpath,${MOONSHINE_BUILD_DIR}"
       "-Wl,-rpath,${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/third-party/onnxruntime/lib/linux/aarch64"
       "-Wl,-rpath,${CMAKE_CURRENT_SOURCE_DIR}/../moonshine/core/third-party/onnxruntime/lib/linux/x86_64")
-elseif(APPLE)
+elseif(APPLE AND NOT IOS)
   target_link_options(moonslate_app PRIVATE "-Wl,-rpath,@executable_path")
 endif()
+# Android and iOS need no rpaths: androiddeployqt bundles the shared libraries
+# into the APK and iOS links moonshine statically.
 
 target_include_directories(moonslate_app PRIVATE
     ${sentencepiece_SOURCE_DIR}/src
